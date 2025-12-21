@@ -71,7 +71,7 @@ public:
 private:
     BufferImpl* impl_ = nullptr;
     friend class DeviceImpl;
-    JD3D12_NO_COPY_CLASS(Buffer)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(Buffer)
 };
 
 struct ShaderDesc
@@ -94,7 +94,7 @@ public:
 private:
     ShaderImpl* impl_ = nullptr;
     friend class DeviceImpl;
-    JD3D12_NO_COPY_CLASS(Shader)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(Shader)
 };
 
 enum DeviceFlags
@@ -234,7 +234,7 @@ public:
 private:
     DeviceImpl* impl_ = nullptr;
     friend class EnvironmentImpl;
-    JD3D12_NO_COPY_CLASS(Device)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(Device)
 };
 
 /// Abstract base class for #StaticShaderFromMemory, #StaticShaderFromFile.
@@ -401,7 +401,7 @@ public:
 private:
     EnvironmentImpl* impl_ = nullptr;
     friend Result CreateEnvironment(Environment*& out_env);
-    JD3D12_NO_COPY_CLASS(Environment)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(Environment)
 };
 
 Result CreateEnvironment(Environment*& out_env);

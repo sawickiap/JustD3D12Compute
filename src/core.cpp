@@ -89,7 +89,7 @@ private:
     friend class Buffer;
     friend class StaticBuffer;
     friend class DeviceImpl;
-    JD3D12_NO_COPY_CLASS(BufferImpl)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(BufferImpl)
 };
 
 class ShaderImpl : public DeviceObject
@@ -107,7 +107,7 @@ private:
     CComPtr<ID3D12PipelineState> pipeline_state_;
 
     friend class Device;
-    JD3D12_NO_COPY_CLASS(ShaderImpl)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(ShaderImpl)
 };
 
 class DescriptorHeap : public DeviceObject
@@ -188,6 +188,8 @@ public:
 
 private:
     CComPtr<ID3D12RootSignature> root_signature_;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(MainRootSignature)
 };
 
 struct Binding
@@ -328,7 +330,7 @@ private:
     friend class DeviceObject;
     friend class BufferImpl;
     friend class ShaderImpl;
-    JD3D12_NO_COPY_CLASS(DeviceImpl)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(DeviceImpl)
 };
 
 class ShaderCompiler
@@ -346,7 +348,7 @@ private:
     CComPtr<IDxcCompiler3> compiler_;
     CComPtr<IDxcIncludeHandler> include_handler_;
 
-    JD3D12_NO_COPY_CLASS(ShaderCompiler)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(ShaderCompiler)
 };
 
 class EnvironmentImpl
@@ -374,7 +376,7 @@ private:
     std::atomic<size_t> device_count_{ 0 };
     ShaderCompiler shader_compiler_;
 
-    JD3D12_NO_COPY_CLASS(EnvironmentImpl)
+    JD3D12_NO_COPY_NO_MOVE_CLASS(EnvironmentImpl)
 };
 
 ////////////////////////////////////////////////////////////////////////////////

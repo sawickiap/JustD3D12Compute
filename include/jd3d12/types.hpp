@@ -13,9 +13,11 @@ namespace jd3d12
     #endif
 #endif
 
-#define JD3D12_NO_COPY_CLASS(class_name) \
+#define JD3D12_NO_COPY_NO_MOVE_CLASS(class_name) \
     class_name(const class_name&) = delete; \
-    class_name& operator=(const class_name&) = delete;
+    class_name(const class_name&&) = delete; \
+    class_name& operator=(const class_name&) = delete; \
+    class_name& operator=(const class_name&&) = delete;
 
 #define JD3D12_VEC2_STRUCT_MEMBERS(struct_name, component_type) \
     using ComponentType = component_type; \
