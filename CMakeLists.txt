@@ -72,6 +72,7 @@ target_sources(jd3d12 PRIVATE FILE_SET internal_headers TYPE HEADERS BASE_DIRS s
    "src/precompiled_header.hpp"
    "src/internal_utils.hpp"
 )
+target_link_libraries(jd3d12 PRIVATE "d3d12" "dxgi" "dxguid")
 target_include_directories(jd3d12 PUBLIC
    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
    $<INSTALL_INTERFACE:include>

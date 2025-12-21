@@ -65,7 +65,8 @@ public:
     - If the element size is unknown, returns 0.
     */
     size_t GetElementSize() const noexcept;
-    ID3D12Resource* GetResource() const noexcept;
+    /// Returns `ID3D12Resource*`.
+    void* GetResource() const noexcept;
 
 private:
     BufferImpl* impl_ = nullptr;
@@ -236,7 +237,6 @@ private:
     JD3D12_NO_COPY_CLASS(Device)
 };
 
-#if 0
 /// Abstract base class for #StaticShaderFromMemory, #StaticShaderFromFile.
 class StaticShader
 {
@@ -254,7 +254,7 @@ protected:
 
     virtual Result Init() = 0;
 
-    friend class Device;
+    friend class DeviceImpl;
 };
 
 /** \brief Helper class that represents a shader created automatically when #Device is created
@@ -347,7 +347,7 @@ protected:
 
     virtual Result Init();
 
-    friend class Device;
+    friend class DeviceImpl;
 };
 
 class StaticBufferFromMemory : public StaticBuffer
@@ -379,7 +379,6 @@ protected:
 private:
     const wchar_t* initial_data_file_path_ = nullptr;
 };
-#endif
 
 class Environment
 {

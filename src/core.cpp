@@ -16,16 +16,11 @@ class DeviceObject
 {
 public:
     DeviceObject() = default;
-    DeviceObject(Device* device, const wchar_t* name);
-    DeviceObject(Device* device, const DeviceDesc& desc);
+    DeviceObject(DeviceImpl* device, const wchar_t* name);
+    DeviceObject(DeviceImpl* device, const DeviceDesc& desc);
     virtual ~DeviceObject() = 0 { }
 
-    Device* GetDevice() const noexcept { return device_; }
-    DeviceImpl* GetDeviceImpl() const noexcept
-    {
-        assert(device_ != nullptr);
-        return device_->GetImpl();
-    }
+    DeviceImpl* GetDevice() const noexcept { return device_; }
     ID3D12Device* GetD3d12Device() const noexcept;
     const wchar_t* GetName() const { return !name_.empty() ? name_.c_str() : nullptr; }
 
@@ -34,7 +29,7 @@ public:
     void SetObjectName(ID3D12Object* obj, const wchar_t* name, const wchar_t* suffix = nullptr);
 
 protected:
-    Device* const device_ = nullptr;
+    DeviceImpl* const device_ = nullptr;
     std::wstring name_;
 };
 
@@ -67,7 +62,7 @@ enum class BufferStrategy
 class BufferImpl : public DeviceObject
 {
 public:
-    BufferImpl(Buffer* parent, Device* device, const BufferDesc& desc);
+    BufferImpl(Buffer* parent, DeviceImpl* device, const BufferDesc& desc);
     ~BufferImpl() override;
     Result Init(ConstDataSpan initial_data);
 
@@ -100,7 +95,7 @@ private:
 class ShaderImpl : public DeviceObject
 {
 public:
-    ShaderImpl(Shader* parent, Device* device, const ShaderDesc& desc);
+    ShaderImpl(Shader* parent, DeviceImpl* device, const ShaderDesc& desc);
     ~ShaderImpl();
     Result Init(ConstDataSpan bytecode);
 
@@ -121,7 +116,7 @@ public:
     static constexpr uint32_t kMaxDescriptorCount = 65536;
     static constexpr uint32_t kStaticDescriptorCount = 3;
 
-    DescriptorHeap(Device* device, const wchar_t* device_name, bool shader_visible)
+    DescriptorHeap(DeviceImpl* device, const wchar_t* device_name, bool shader_visible)
         : DeviceObject{device, device_name}
         , shader_visible_{shader_visible}
     {
@@ -187,7 +182,7 @@ public:
         return kMaxCBVCount + kMaxSRVCount + uav_index;
     }
 
-    MainRootSignature(Device* device) : DeviceObject{device, nullptr} {}
+    MainRootSignature(DeviceImpl* device) : DeviceObject{device, nullptr} {}
     ID3D12RootSignature* GetRootSignature() const noexcept { return root_signature_; }
     Result Init();
 
@@ -215,11 +210,12 @@ struct BindingState
 class DeviceImpl : public DeviceObject
 {
 public:
-    DeviceImpl(Device* parent, Environment* env, const DeviceDesc& desc);
+    DeviceImpl(Device* parent, EnvironmentImpl* env, const DeviceDesc& desc);
     ~DeviceImpl();
     Result Init();
 
-    Environment* GetEnvironment() const noexcept { return env_; }
+    Device* GetInterface() const noexcept { return parent_; }
+    EnvironmentImpl* GetEnvironment() const noexcept { return env_; }
     ID3D12Device* GetDevice() const noexcept { return device_; }
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 GetOptions16() const noexcept { return options16_; }
 
@@ -275,7 +271,7 @@ private:
     enum class CommandListState { kNone, kRecording, kExecuting };
 
     Device* const parent_;
-    Environment* const env_;
+    EnvironmentImpl* const env_;
     DeviceDesc desc_{};
     CComPtr<ID3D12Device> device_;
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16_{};
@@ -360,6 +356,7 @@ public:
     ~EnvironmentImpl();
     Result Init();
 
+    Environment* GetInterface() const noexcept { return parent_; }
     IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
     IDXGIAdapter1* GetAdapter1() const noexcept { return adapter_; }
     ID3D12SDKConfiguration1* GetSDKConfiguration1() const noexcept { return sdk_config1_; }
@@ -383,16 +380,15 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 // class DeviceObject
 
-DeviceObject::DeviceObject(Device* device, const wchar_t* name)
+DeviceObject::DeviceObject(DeviceImpl* device, const wchar_t* name)
     : device_{device}
 {
-    assert(device != nullptr && device->GetImpl() != nullptr);
-
-    if ((device->GetImpl()->desc_.flags & kDeviceFlagDisableNameStoring) == 0 && !IsStringEmpty(name))
+    assert(device != nullptr);
+    if ((device->desc_.flags & kDeviceFlagDisableNameStoring) == 0 && !IsStringEmpty(name))
         name_ = name;
 }
 
-DeviceObject::DeviceObject(Device* device, const DeviceDesc& desc)
+DeviceObject::DeviceObject(DeviceImpl* device, const DeviceDesc& desc)
     : device_{device}
 {
     assert(device != nullptr);
@@ -404,9 +400,8 @@ DeviceObject::DeviceObject(Device* device, const DeviceDesc& desc)
 
 ID3D12Device* DeviceObject::GetD3d12Device() const noexcept
 {
-    DeviceImpl* dev_impl = GetDeviceImpl();
-    assert(dev_impl != nullptr);
-    return dev_impl->GetDevice();
+    assert(device_ != nullptr);
+    return device_->GetDevice();
 }
 
 void DeviceObject::SetDeviceObjectName(uint32_t device_flags, ID3D12Object *obj, const wchar_t* name,
@@ -431,7 +426,7 @@ void DeviceObject::SetDeviceObjectName(uint32_t device_flags, ID3D12Object *obj,
 void DeviceObject::SetObjectName(ID3D12Object* obj, const wchar_t* name, const wchar_t* suffix)
 {
     if(device_ != nullptr)
-        SetDeviceObjectName(GetDeviceImpl()->desc_.flags, obj, name, suffix);
+        SetDeviceObjectName(device_->desc_.flags, obj, name, suffix);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -539,17 +534,17 @@ D3D12_RESOURCE_STATES BufferImpl::GetInitialState(D3D12_HEAP_TYPE heap_type)
     }
 }
 
-BufferImpl::BufferImpl(Buffer* parent, Device* device, const BufferDesc& desc)
+BufferImpl::BufferImpl(Buffer* parent, DeviceImpl* device, const BufferDesc& desc)
     : DeviceObject{device, desc.name}
     , parent_{parent}
     , desc_{desc}
 {
-    ++GetDeviceImpl()->buffer_count_;
+    ++GetDevice()->buffer_count_;
 }
 
 BufferImpl::~BufferImpl()
 {
-    DeviceImpl* const dev = GetDeviceImpl();
+    DeviceImpl* const dev = GetDevice();
 
     HRESULT hr = dev->WaitForBufferUnused(this);
     assert(SUCCEEDED(hr) && "Failed to wait for buffer unused in Buffer destructor.");
@@ -653,17 +648,17 @@ Result BufferImpl::WriteInitialData(ConstDataSpan initial_data)
 ////////////////////////////////////////////////////////////////////////////////
 // class ShaderImpl
 
-ShaderImpl::ShaderImpl(Shader* parent, Device* device, const ShaderDesc& desc)
+ShaderImpl::ShaderImpl(Shader* parent, DeviceImpl* device, const ShaderDesc& desc)
     : DeviceObject{device, desc.name}
     , parent_{parent}
     , desc_{desc}
 {
-    ++device->GetImpl()->shader_count_;
+    ++device->shader_count_;
 }
 
 ShaderImpl::~ShaderImpl()
 {
-    DeviceImpl* const dev = GetDeviceImpl();
+    DeviceImpl* const dev = GetDevice();
     HRESULT hr = dev->WaitForShaderUnused(this);
     assert(SUCCEEDED(hr) && "Failed to wait for shader unused in Shader destructor.");
     --dev->shader_count_;
@@ -671,7 +666,7 @@ ShaderImpl::~ShaderImpl()
 
 Result ShaderImpl::Init(ConstDataSpan bytecode)
 {
-    DeviceImpl* const dev = GetDeviceImpl();
+    DeviceImpl* const dev = GetDevice();
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc = {};
     pso_desc.pRootSignature = dev->main_root_signature_->GetRootSignature();
@@ -872,14 +867,14 @@ bool BindingState::IsBufferBound(BufferImpl* buf)
 ////////////////////////////////////////////////////////////////////////////////
 // class DeviceImpl
 
-DeviceImpl::DeviceImpl(Device* parent, Environment* env, const DeviceDesc& desc)
-    : DeviceObject{ parent, desc }
+DeviceImpl::DeviceImpl(Device* parent, EnvironmentImpl* env, const DeviceDesc& desc)
+    : DeviceObject{ this, desc }
     , parent_{ parent }
     , env_{ env }
     , desc_{ desc }
     , main_root_signature_{ std::make_unique<MainRootSignature>(this) }
-    , shader_visible_descriptor_heap_{ parent, desc.name, true }
-    , shader_invisible_descriptor_heap_{ parent, desc.name, false }
+    , shader_visible_descriptor_heap_{ this, desc.name, true }
+    , shader_invisible_descriptor_heap_{ this, desc.name, false }
 {
     assert(env);
 
@@ -932,7 +927,7 @@ Result DeviceImpl::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan 
     out_buffer = nullptr;
 
     auto buf = std::make_unique<Buffer>();
-    buf->impl_ = new BufferImpl{ buf.get(), parent_, desc };
+    buf->impl_ = new BufferImpl{ buf.get(), this, desc };
     RETURN_IF_FAILED(buf->GetImpl()->Init(initial_data));
 
     out_buffer = buf.release();
@@ -961,7 +956,7 @@ Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan 
         "Shader bytecode cannot be null or empty.");
 
     auto shader = std::make_unique<Shader>();
-    shader->impl_ = new ShaderImpl{ shader.get(), parent_, desc };
+    shader->impl_ = new ShaderImpl{ shader.get(), this, desc };
     RETURN_IF_FAILED(shader->GetImpl()->Init(bytecode));
 
     out_shader = shader.release();
@@ -989,7 +984,7 @@ Result DeviceImpl::MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_
     uint32_t command_flags)
 {
     out_data_ptr = nullptr;
-    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf.GetDevice() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN(!buf.is_user_mapped_, "Device::MapBuffer called twice. Nested mapping is not supported.");
     ASSERT_OR_RETURN(buf.persistently_mapped_ptr_ != nullptr, "Cannot map this buffer.");
     ASSERT_OR_RETURN(CountBitsSet(cpu_usage_flag &
@@ -1024,7 +1019,7 @@ Result DeviceImpl::MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_
 
 void DeviceImpl::UnmapBuffer(BufferImpl& buf)
 {
-    assert(buf.GetDeviceImpl() == this && "Buffer does not belong to this Device.");
+    assert(buf.GetDevice() == this && "Buffer does not belong to this Device.");
     assert(buf.is_user_mapped_ && "Device::UnmapBuffer called but the buffer wasn't mapped.");
 
     buf.is_user_mapped_ = false;
@@ -1033,7 +1028,7 @@ void DeviceImpl::UnmapBuffer(BufferImpl& buf)
 Result DeviceImpl::ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range, void* dst_memory,
     uint32_t command_flags)
 {
-    ASSERT_OR_RETURN(src_buf.GetDeviceImpl() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(src_buf.GetDevice() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN(!src_buf.is_user_mapped_, "Cannot call this command while the buffer is mapped.");
 
     src_byte_range = LimitRange(src_byte_range, src_buf.GetSize());
@@ -1068,7 +1063,7 @@ Result DeviceImpl::ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range,
 Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_buf, size_t dst_byte_offset,
     uint32_t command_flags)
 {
-    ASSERT_OR_RETURN(dst_buf.GetDeviceImpl() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN(!dst_buf.is_user_mapped_, "Cannot call this command while the buffer is mapped.");
 
     if(src_data.size == 0)
@@ -1152,8 +1147,8 @@ Result DeviceImpl::WaitForGPU(uint32_t timeout_milliseconds)
 
 Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
 {
-    ASSERT_OR_RETURN(src_buf.GetDeviceImpl() == this, "src_buf does not belong to this Device.");
-    ASSERT_OR_RETURN(dst_buf.GetDeviceImpl() == this, "dst_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(src_buf.GetDevice() == this, "src_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "dst_buf does not belong to this Device.");
     ASSERT_OR_RETURN((src_buf.desc_.flags & kBufferUsageFlagCopySrc) != 0,
         "src_buf was not created with kBufferUsageFlagCopySource.");
     ASSERT_OR_RETURN((dst_buf.desc_.flags & kBufferUsageFlagCopyDst) != 0,
@@ -1173,8 +1168,8 @@ Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
 
 Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, BufferImpl& dst_buf, size_t dst_byte_offset)
 {
-    ASSERT_OR_RETURN(src_buf.GetDeviceImpl() == this, "src_buf does not belong to this Device.");
-    ASSERT_OR_RETURN(dst_buf.GetDeviceImpl() == this, "dst_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(src_buf.GetDevice() == this, "src_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "dst_buf does not belong to this Device.");
     ASSERT_OR_RETURN((src_buf.desc_.flags & kBufferUsageFlagCopySrc) != 0,
         "src_buf was not created with kBufferUsageFlagCopySource.");
     ASSERT_OR_RETURN((dst_buf.desc_.flags & kBufferUsageFlagCopyDst) != 0,
@@ -1197,7 +1192,7 @@ Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, B
 
 Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& values, Range element_range)
 {
-    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this,
+    ASSERT_OR_RETURN(buf.GetDevice() == this,
         "ClearBufferToUintValues: Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
         "ClearBufferToUintValues: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
@@ -1225,7 +1220,7 @@ Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& valu
 
 Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& values, Range element_range)
 {
-    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this,
+    ASSERT_OR_RETURN(buf.GetDevice() == this,
         "ClearBufferToFloatValues: Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
         "ClearBufferToFloatValues: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
@@ -1297,7 +1292,7 @@ Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range by
     ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
-    ASSERT_OR_RETURN(buf->GetDeviceImpl() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagGpuConstant) != 0,
         "BindConstantBuffer: Buffer was not created with kBufferUsageFlagGpuConstant.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
@@ -1343,7 +1338,7 @@ Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range
     ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
-    ASSERT_OR_RETURN(buf->GetDeviceImpl() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf->desc_.flags & (kBufferUsageFlagGpuReadOnly | kBufferUsageFlagGpuReadWrite)) != 0,
         "BindBuffer: Buffer was not created with kBufferUsageFlagGpuReadOnly or kBufferUsageFlagGpuReadWrite.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
@@ -1386,7 +1381,7 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
     ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
-    ASSERT_OR_RETURN(buf->GetDeviceImpl() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
         "BindRWBuffer: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
@@ -1401,8 +1396,7 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
 
 Result DeviceImpl::Init()
 {
-    RETURN_IF_FAILED(env_->GetImpl()->GetDeviceFactory()->CreateDevice(
-        env_->GetImpl()->GetAdapter1(),
+    RETURN_IF_FAILED(env_->GetDeviceFactory()->CreateDevice(env_->GetAdapter1(),
         D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&device_)));
 
     HRESULT hr = device_->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS16, &options16_, sizeof(options16_));
@@ -1888,7 +1882,7 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
     out_shader_visible_gpu_desc_handle = {};
     out_shader_invisible_cpu_desc_handle = {};
 
-    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this, "buf does not belong to this Device.");
+    ASSERT_OR_RETURN(buf.GetDevice() == this, "buf does not belong to this Device.");
 
     RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
 
@@ -1951,7 +1945,7 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
 
 Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& group_count)
 {
-    ASSERT_OR_RETURN(shader.GetDeviceImpl() == this, "Shader does not belong to this Device.");
+    ASSERT_OR_RETURN(shader.GetDevice() == this, "Shader does not belong to this Device.");
 
     if(group_count.x == 0 || group_count.y == 0 || group_count.z == 0)
         return kFalse;
@@ -2019,7 +2013,7 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
     out_device = nullptr;
 
     auto device = std::make_unique<Device>();
-    device->impl_ = new DeviceImpl(device.get(), parent_, desc);
+    device->impl_ = new DeviceImpl(device.get(), this, desc);
     RETURN_IF_FAILED(device->impl_->Init());
 
     out_device = device.release();
@@ -2041,7 +2035,6 @@ Result EnvironmentImpl::Init()
         DXGI_ADAPTER_DESC1 adapter_desc = {};
         RETURN_IF_FAILED(adapter1->GetDesc1(&adapter_desc));
 
-        wprintf(L"Selecting adapter: %s\n", adapter_desc.Description);
         selected_adapter_index_ = adapter_index;
         adapter_ = std::move(adapter1);
         break;
@@ -2060,207 +2053,6 @@ Result EnvironmentImpl::Init()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// TODO
-
-#if 0
-StaticShader::StaticShader()
-{
-    Singleton& singleton = Singleton::GetInstance();
-    assert(singleton.env_ == nullptr &&
-        "StaticShader objects can only be created before Environment object is created.");
-    singleton.static_shaders_.push_back(this);
-}
-
-StaticShader::StaticShader(const ShaderDesc& desc)
-    : desc_{ desc }
-{
-    Singleton& singleton = Singleton::GetInstance();
-    assert(singleton.env_ == nullptr &&
-        "StaticShader objects can only be created before Environment object is created.");
-    singleton.static_shaders_.push_back(this);
-}
-
-StaticShader::~StaticShader()
-{
-    assert(shader_ == nullptr
-        && "StaticBuffer objects lifetime must extend beyond the lifetime of the main Environment object.");
-
-    // Intentionally not removing itself from Singleton::static_shaders_ because the order
-    // of global object destruction may be undefined.
-}
-
-Shader* StaticShader::GetShader() const noexcept
-{
-    return shader_;
-}
-
-StaticShaderFromMemory::StaticShaderFromMemory()
-{
-}
-
-StaticShaderFromMemory::StaticShaderFromMemory(const ShaderDesc& desc, ConstDataSpan bytecode)
-    : StaticShader{ desc }
-    , bytecode_{ bytecode }
-{
-}
-
-StaticShaderFromMemory::~StaticShaderFromMemory()
-{
-}
-
-inline void StaticShaderFromMemory::Set(const ShaderDesc& desc, ConstDataSpan bytecode)
-{
-    assert(!shader_ && "Cannot call StaticShaderFromMemory::Set when the shader is already created.");
-
-    desc_ = desc;
-    bytecode_ = bytecode;
-}
-
-Result StaticShaderFromMemory::Init()
-{
-    if(!IsSet())
-        return kFalse;
-
-    Singleton& singleton = Singleton::GetInstance();
-    Device* dev = singleton.first_dev_;
-    assert(dev != nullptr && singleton.dev_count_ == 1);
-    return dev->CreateShaderFromMemory(desc_, bytecode_, shader_);
-}
-
-StaticShaderFromFile::StaticShaderFromFile()
-{
-}
-
-StaticShaderFromFile::StaticShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path)
-    : StaticShader{ desc }
-    , bytecode_file_path_{ bytecode_file_path }
-{
-}
-
-StaticShaderFromFile::~StaticShaderFromFile()
-{
-}
-
-bool StaticShaderFromFile::IsSet() const noexcept
-{
-    return !IsStringEmpty(bytecode_file_path_);
-}
-
-void StaticShaderFromFile::Set(const ShaderDesc& desc, const wchar_t* bytecode_file_path)
-{
-    assert(!shader_ && "Cannot call StaticShaderFromFile::Set when the shader is already created.");
-
-    desc_ = desc;
-    bytecode_file_path_ = bytecode_file_path;
-}
-
-Result StaticShaderFromFile::Init()
-{
-    if(!IsSet())
-        return kFalse;
-
-    Singleton& singleton = Singleton::GetInstance();
-    Device* dev = singleton.first_dev_;
-    assert(dev != nullptr && singleton.dev_count_ == 1);
-    return dev->CreateShaderFromFile(desc_, bytecode_file_path_, shader_);
-}
-
-StaticBuffer::StaticBuffer()
-{
-    Singleton& singleton = Singleton::GetInstance();
-    assert(singleton.env_ == nullptr &&
-        "StaticBuffer objects can only be created before Environment object is created.");
-    singleton.static_buffers_.push_back(this);
-}
-
-StaticBuffer::StaticBuffer(const BufferDesc& desc)
-    : desc_{ desc }
-{
-    Singleton& singleton = Singleton::GetInstance();
-    assert(singleton.env_ == nullptr &&
-        "StaticBuffer objects can only be created before Environment object is created.");
-    singleton.static_buffers_.push_back(this);
-}
-
-StaticBuffer::~StaticBuffer()
-{
-    assert(buffer_ == nullptr
-        && "StaticBuffer objects lifetime must extend beyond the lifetime of the main Environment object.");
-
-    // Intentionally not removing itself from Singleton::static_buffers_ because the order
-    // of global object destruction may be undefined.
-}
-
-void StaticBuffer::Set(const BufferDesc& desc)
-{
-    assert(!buffer_ && "Cannot call StaticBuffer::Set when the buffer is already created.");
-    desc_ = desc;
-}
-
-Buffer* StaticBuffer::GetBuffer() const noexcept
-{
-    return buffer_;
-}
-
-Result StaticBuffer::Init()
-{
-    if(!IsSet())
-        return kFalse;
-
-    Singleton& singleton = Singleton::GetInstance();
-    Device* dev = singleton.first_dev_;
-    assert(dev != nullptr && singleton.dev_count_ == 1);
-    return dev->CreateBuffer(desc_, buffer_);
-}
-
-StaticBufferFromMemory::StaticBufferFromMemory(const BufferDesc& desc, ConstDataSpan initial_data)
-    : StaticBuffer{ desc }
-    , initial_data_{ initial_data }
-{
-}
-
-void StaticBufferFromMemory::Set(const BufferDesc& desc, ConstDataSpan initial_data)
-{
-    __super::Set(desc);
-    initial_data_ = initial_data;
-}
-
-Result StaticBufferFromMemory::Init()
-{
-    if(!IsSet())
-        return kFalse;
-
-    Singleton& singleton = Singleton::GetInstance();
-    Device* dev = singleton.first_dev_;
-    assert(dev != nullptr && singleton.dev_count_ == 1);
-    return dev->CreateBufferFromMemory(desc_, initial_data_, buffer_);
-}
-
-StaticBufferFromFile::StaticBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path)
-    : StaticBuffer{ desc }
-    , initial_data_file_path_{ initial_data_file_path }
-{
-}
-
-void StaticBufferFromFile::Set(const BufferDesc& desc, const wchar_t* initial_data_file_path)
-{
-    __super::Set(desc);
-    initial_data_file_path_ = initial_data_file_path;
-}
-
-Result StaticBufferFromFile::Init()
-{
-    if(!IsSet())
-        return kFalse;
-
-    Singleton& singleton = Singleton::GetInstance();
-    Device* dev = singleton.first_dev_;
-    assert(dev != nullptr && singleton.dev_count_ == 1);
-    return dev->CreateBufferFromFile(desc_, initial_data_file_path_, buffer_);
-}
-#endif
-
-////////////////////////////////////////////////////////////////////////////////
 // public class Buffer
 
 Buffer::Buffer()
@@ -2276,7 +2068,7 @@ Buffer::~Buffer()
 Device* Buffer::GetDevice() const noexcept
 {
     assert(impl_ != nullptr);
-    return impl_->GetDevice();
+    return impl_->GetDevice()->GetInterface();
 }
 
 const wchar_t* Buffer::GetName() const noexcept
@@ -2315,7 +2107,7 @@ size_t Buffer::GetElementSize() const noexcept
     return impl_->GetElementSize();
 }
 
-ID3D12Resource* Buffer::GetResource() const noexcept
+void* Buffer::GetResource() const noexcept
 {
     assert(impl_ != nullptr);
     return impl_->GetResource();
@@ -2337,7 +2129,7 @@ Shader::~Shader()
 Device* Shader::GetDevice() const noexcept
 {
     assert(impl_ != nullptr);
-    return impl_->GetDevice();
+    return impl_->GetDevice()->GetInterface();
 }
 
 const wchar_t* Shader::GetName() const noexcept
@@ -2368,7 +2160,7 @@ Device::~Device()
 Environment* Device::GetEnvironment() const noexcept
 {
     assert(impl_ != nullptr);
-    return impl_->GetEnvironment();
+    return impl_->GetEnvironment()->GetInterface();
 }
 
 void* Device::GetNativeDevice() const noexcept
@@ -2505,6 +2297,220 @@ Result Device::DispatchComputeShader(Shader& shader, const UintVec3& group_count
 {
     assert(impl_ != nullptr && shader.GetImpl() != nullptr);
     return impl_->DispatchComputeShader(*shader.GetImpl(), group_count);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticShader
+
+StaticShader::StaticShader()
+{
+    Singleton& singleton = Singleton::GetInstance();
+    assert(singleton.env_ == nullptr &&
+        "StaticShader objects can only be created before Environment object is created.");
+    singleton.static_shaders_.push_back(this);
+}
+
+StaticShader::StaticShader(const ShaderDesc& desc)
+    : desc_{ desc }
+{
+    Singleton& singleton = Singleton::GetInstance();
+    assert(singleton.env_ == nullptr &&
+        "StaticShader objects can only be created before Environment object is created.");
+    singleton.static_shaders_.push_back(this);
+}
+
+StaticShader::~StaticShader()
+{
+    assert(shader_ == nullptr
+        && "StaticBuffer objects lifetime must extend beyond the lifetime of the main Environment object.");
+
+    // Intentionally not removing itself from Singleton::static_shaders_ because the order
+    // of global object destruction may be undefined.
+}
+
+Shader* StaticShader::GetShader() const noexcept
+{
+    return shader_;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticShaderFromMemory
+
+StaticShaderFromMemory::StaticShaderFromMemory()
+{
+}
+
+StaticShaderFromMemory::StaticShaderFromMemory(const ShaderDesc& desc, ConstDataSpan bytecode)
+    : StaticShader{ desc }
+    , bytecode_{ bytecode }
+{
+}
+
+StaticShaderFromMemory::~StaticShaderFromMemory()
+{
+}
+
+inline void StaticShaderFromMemory::Set(const ShaderDesc& desc, ConstDataSpan bytecode)
+{
+    assert(!shader_ && "Cannot call StaticShaderFromMemory::Set when the shader is already created.");
+
+    desc_ = desc;
+    bytecode_ = bytecode;
+}
+
+Result StaticShaderFromMemory::Init()
+{
+    if(!IsSet())
+        return kFalse;
+
+    Singleton& singleton = Singleton::GetInstance();
+    Device* dev = singleton.first_dev_;
+    assert(dev != nullptr && singleton.dev_count_ == 1);
+    return dev->CreateShaderFromMemory(desc_, bytecode_, shader_);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticShaderFromFile
+
+StaticShaderFromFile::StaticShaderFromFile()
+{
+}
+
+StaticShaderFromFile::StaticShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path)
+    : StaticShader{ desc }
+    , bytecode_file_path_{ bytecode_file_path }
+{
+}
+
+StaticShaderFromFile::~StaticShaderFromFile()
+{
+}
+
+bool StaticShaderFromFile::IsSet() const noexcept
+{
+    return !IsStringEmpty(bytecode_file_path_);
+}
+
+void StaticShaderFromFile::Set(const ShaderDesc& desc, const wchar_t* bytecode_file_path)
+{
+    assert(!shader_ && "Cannot call StaticShaderFromFile::Set when the shader is already created.");
+
+    desc_ = desc;
+    bytecode_file_path_ = bytecode_file_path;
+}
+
+Result StaticShaderFromFile::Init()
+{
+    if(!IsSet())
+        return kFalse;
+
+    Singleton& singleton = Singleton::GetInstance();
+    Device* dev = singleton.first_dev_;
+    assert(dev != nullptr && singleton.dev_count_ == 1);
+    return dev->CreateShaderFromFile(desc_, bytecode_file_path_, shader_);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticBuffer
+
+StaticBuffer::StaticBuffer()
+{
+    Singleton& singleton = Singleton::GetInstance();
+    assert(singleton.env_ == nullptr &&
+        "StaticBuffer objects can only be created before Environment object is created.");
+    singleton.static_buffers_.push_back(this);
+}
+
+StaticBuffer::StaticBuffer(const BufferDesc& desc)
+    : desc_{ desc }
+{
+    Singleton& singleton = Singleton::GetInstance();
+    assert(singleton.env_ == nullptr &&
+        "StaticBuffer objects can only be created before Environment object is created.");
+    singleton.static_buffers_.push_back(this);
+}
+
+StaticBuffer::~StaticBuffer()
+{
+    assert(buffer_ == nullptr
+        && "StaticBuffer objects lifetime must extend beyond the lifetime of the main Environment object.");
+
+    // Intentionally not removing itself from Singleton::static_buffers_ because the order
+    // of global object destruction may be undefined.
+}
+
+void StaticBuffer::Set(const BufferDesc& desc)
+{
+    assert(!buffer_ && "Cannot call StaticBuffer::Set when the buffer is already created.");
+    desc_ = desc;
+}
+
+Buffer* StaticBuffer::GetBuffer() const noexcept
+{
+    return buffer_;
+}
+
+Result StaticBuffer::Init()
+{
+    if(!IsSet())
+        return kFalse;
+
+    Singleton& singleton = Singleton::GetInstance();
+    Device* dev = singleton.first_dev_;
+    assert(dev != nullptr && singleton.dev_count_ == 1);
+    return dev->CreateBuffer(desc_, buffer_);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticBufferFromMemory
+
+StaticBufferFromMemory::StaticBufferFromMemory(const BufferDesc& desc, ConstDataSpan initial_data)
+    : StaticBuffer{ desc }
+    , initial_data_{ initial_data }
+{
+}
+
+void StaticBufferFromMemory::Set(const BufferDesc& desc, ConstDataSpan initial_data)
+{
+    __super::Set(desc);
+    initial_data_ = initial_data;
+}
+
+Result StaticBufferFromMemory::Init()
+{
+    if(!IsSet())
+        return kFalse;
+
+    Singleton& singleton = Singleton::GetInstance();
+    Device* dev = singleton.first_dev_;
+    assert(dev != nullptr && singleton.dev_count_ == 1);
+    return dev->CreateBufferFromMemory(desc_, initial_data_, buffer_);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticBufferFromFile
+
+StaticBufferFromFile::StaticBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path)
+    : StaticBuffer{ desc }
+    , initial_data_file_path_{ initial_data_file_path }
+{
+}
+
+void StaticBufferFromFile::Set(const BufferDesc& desc, const wchar_t* initial_data_file_path)
+{
+    __super::Set(desc);
+    initial_data_file_path_ = initial_data_file_path;
+}
+
+Result StaticBufferFromFile::Init()
+{
+    if(!IsSet())
+        return kFalse;
+
+    Singleton& singleton = Singleton::GetInstance();
+    Device* dev = singleton.first_dev_;
+    assert(dev != nullptr && singleton.dev_count_ == 1);
+    return dev->CreateBufferFromFile(desc_, initial_data_file_path_, buffer_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
