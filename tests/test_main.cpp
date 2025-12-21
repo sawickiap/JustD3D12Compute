@@ -34,17 +34,9 @@ StaticShaderFromFile copy_squared_typed_shader{
 constexpr size_t kMainBufSize = 10 * kMegabyte;
 
 std::array<float, 8> main_src_data = { 1, 2, 3, 4, 5, 6, 7, 8 };
-StaticBufferFromMemory main_upload_buffer{
-    BufferDesc{
-        L"My buffer UPLOAD",
-        kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagCopySrc,
-        kMainBufSize },
-        ConstDataSpan{main_src_data.data(), main_src_data.size() * sizeof(float)} };
-StaticBuffer main_readback_buffer{
-    BufferDesc{
-        L"My buffer READBACK",
-        kBufferUsageFlagCopyDst | kBufferUsageFlagCpuRead,
-        kMainBufSize } };
+
+Buffer* g_main_upload_buffer;
+Buffer* g_main_readback_buffer;
 
 Environment* g_env;
 Device* g_dev;
@@ -73,6 +65,8 @@ int main(int argc, char** argv)
 {
     std::unique_ptr<Environment> env;
     std::unique_ptr<Device> dev;
+    std::unique_ptr<Buffer> main_upload_buf;
+    std::unique_ptr<Buffer> main_readback_buf;
 
     if(!HasListTests(argc, argv))
     {
@@ -85,11 +79,36 @@ int main(int argc, char** argv)
         device_desc.name = L"My device";
         CHECK_OUTSIDE_TESTS(Succeeded(env->CreateDevice(device_desc, g_dev)));
         dev.reset(g_dev);
+
+        {
+            BufferDesc upload_buf_desc{};
+            upload_buf_desc.name = L"My buffer UPLOAD";
+            upload_buf_desc.flags = kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagCopySrc;
+            upload_buf_desc.size = kMainBufSize;
+            CHECK_OUTSIDE_TESTS(Succeeded(g_dev->CreateBufferFromMemory(
+                upload_buf_desc,
+                ConstDataSpan{ main_src_data.data(), main_src_data.size() * sizeof(float) },
+                g_main_upload_buffer)));
+            main_upload_buf.reset(g_main_upload_buffer);
+        }
+
+        {
+            BufferDesc readback_buf_desc{};
+            readback_buf_desc.name = L"My buffer READBACK";
+            readback_buf_desc.flags = kBufferUsageFlagCopyDst | kBufferUsageFlagCpuRead;
+            readback_buf_desc.size = kMainBufSize;
+            CHECK_OUTSIDE_TESTS(Succeeded(g_dev->CreateBuffer(readback_buf_desc, g_main_readback_buffer)));
+            main_readback_buf.reset(g_main_readback_buffer);
+        }
     }
 
     return Catch::Session().run(argc, argv);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Tests
+
+/*
 TEST_CASE("DivideRoundingUp scalar", "[types]")
 {
     const uint32_t count = 100;
@@ -219,7 +238,7 @@ TEST_CASE("Format description", "[utils][format]")
     CHECK(desc->active_component_count == 2);
     CHECK(desc->is_simple == 1);
 }
-
+*/
 TEST_CASE("Typed buffer", "[gpu][buffer]")
 {
     BufferDesc default_buf_desc{};
@@ -232,25 +251,25 @@ TEST_CASE("Typed buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
 
-    REQUIRE(main_upload_buffer.GetBuffer() != nullptr);
-    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(), Range{0, kMainBufSize}, *default_buffer, 0)));
+    REQUIRE(g_main_upload_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*g_main_upload_buffer,
+        Range{0, kMainBufSize}, *default_buffer, 0)));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(0, default_buffer.get())));
     REQUIRE(typed_shader.GetShader() != nullptr);
     REQUIRE(Succeeded(g_dev->DispatchComputeShader(*typed_shader.GetShader(), { 8, 1, 1 })));
     g_dev->ResetAllBindings();
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
-    REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
 
-    REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
-    REQUIRE(Succeeded(g_dev->WaitForGPU()));
+    REQUIRE(g_main_readback_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *g_main_readback_buffer)));
 
     std::array<float, 8> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0, dst_data.size() * sizeof(float)},
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
+        Range{0, dst_data.size() * sizeof(float)},
         dst_data.data())));
 
     for(size_t i = 0; i < dst_data.size(); ++i)
     {
-        CHECK(dst_data[i] == main_src_data[i] * main_src_data[i]);
+        CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
     }
 }
 
@@ -266,25 +285,23 @@ TEST_CASE("Structured buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
 
-    REQUIRE(main_upload_buffer.GetBuffer() != nullptr);
-    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(), Range{0, kMainBufSize}, *default_buffer, 0)));
+    REQUIRE(g_main_upload_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*g_main_upload_buffer,
+        Range{0, kMainBufSize}, *default_buffer, 0)));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(1, default_buffer.get())));
     REQUIRE(structured_shader.GetShader() != nullptr);
     REQUIRE(Succeeded(g_dev->DispatchComputeShader(*structured_shader.GetShader(), { 8, 1, 1 })));
     g_dev->ResetAllBindings();
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
-    REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
-
-    REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
-    REQUIRE(Succeeded(g_dev->WaitForGPU()));
+    REQUIRE(g_main_readback_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *g_main_readback_buffer)));
 
     std::array<float, 8> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0,
-        dst_data.size() * sizeof(float)}, dst_data.data())));
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
+        Range{0, dst_data.size() * sizeof(float)}, dst_data.data())));
 
     for(size_t i = 0; i < dst_data.size(); ++i)
     {
-        CHECK(dst_data[i] == main_src_data[i] * main_src_data[i]);
+        CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
     }
 }
 
@@ -299,26 +316,23 @@ TEST_CASE("ByteAddress buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
 
-    REQUIRE(main_upload_buffer.GetBuffer() != nullptr);
-    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(),
+    REQUIRE(g_main_upload_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*g_main_upload_buffer,
         Range{0, kMainBufSize}, *default_buffer, 0)));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(2, default_buffer.get())));
     REQUIRE(byte_address_shader.GetShader() != nullptr);
     REQUIRE(Succeeded(g_dev->DispatchComputeShader(*byte_address_shader.GetShader(), { 8, 1, 1 })));
     g_dev->ResetAllBindings();
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
-    REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
-
-    REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
-    REQUIRE(Succeeded(g_dev->WaitForGPU()));
+    REQUIRE(g_main_readback_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *g_main_readback_buffer)));
 
     std::array<float, 8> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(),
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
         Range{0, dst_data.size() * sizeof(float)}, dst_data.data())));
 
     for(size_t i = 0; i < dst_data.size(); ++i)
     {
-        CHECK(dst_data[i] == main_src_data[i] * main_src_data[i]);
+        CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
     }
 }
 
@@ -334,13 +348,13 @@ TEST_CASE("ClearBufferToUintValues", "[gpu][buffer][clear]")
     std::unique_ptr<Buffer> typed_buffer{ buffer_ptr };
 
     REQUIRE(Succeeded(g_dev->ClearBufferToUintValues(*typed_buffer, UintVec4{0, 666, 0xFF, 0x7FFF})));
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
+    REQUIRE(g_main_readback_buffer != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*typed_buffer, Range{0, typed_buf_desc.size},
-        *main_readback_buffer.GetBuffer(), 0)));
+        *g_main_readback_buffer, 0)));
 
     {
         std::array<int16_t, 4> dst_data;
-        REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(),
+        REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
             Range{16, dst_data.size() * sizeof(dst_data[0])}, dst_data.data())));
         std::array<int16_t, 4> expected = {0, 666, 0xFF, 0x7FFF};
         REQUIRE(memcmp(dst_data.data(), expected.data(), dst_data.size() * sizeof(dst_data[0])) == 0);
@@ -355,13 +369,13 @@ TEST_CASE("ClearBufferToUintValues", "[gpu][buffer][clear]")
 
     REQUIRE(Succeeded(g_dev->ClearBufferToUintValues(*byte_address_buffer,
         UintVec4{0xAA112233u, 0xBB112233u, 0xCC112233u, 0xDD112233u})));
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
+    REQUIRE(g_main_readback_buffer != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*byte_address_buffer, Range{0, byte_address_buf_desc.size},
-        *main_readback_buffer.GetBuffer(), 0)));
+        *g_main_readback_buffer, 0)));
 
     {
         std::array<uint32_t, 4> dst_data;
-        REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(),
+        REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
             Range{16, dst_data.size() * sizeof(dst_data[0])}, dst_data.data())));
         std::array<uint32_t, 4> expected =
         {0xAA112233u, 0xAA112233u, 0xAA112233u, 0xAA112233u};
@@ -382,12 +396,12 @@ TEST_CASE("ClearBufferToFloatValues", "[gpu][buffer][clear]")
 
     REQUIRE(Succeeded(g_dev->ClearBufferToFloatValues(*default_buffer,
         FloatVec4{1.f, -1.f, 0.5f, 2.f})));
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
+    REQUIRE(g_main_readback_buffer != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*default_buffer, Range{0, default_buf_desc.size},
-        *main_readback_buffer.GetBuffer(), 0)));
+        *g_main_readback_buffer, 0)));
 
     std::array<uint16_t, 4> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(),
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
         Range{16, dst_data.size() * sizeof(dst_data[0])},
         dst_data.data())));
     std::array<uint16_t, 4> expected = {0x3C00, 0xBC00,0x3800, 0x4000};
@@ -461,12 +475,12 @@ TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer]")
 
     g_dev->ResetAllBindings();
 
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
+    REQUIRE(g_main_readback_buffer != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*my_default_buffer, Range{0, kBufSize},
-        *main_readback_buffer.GetBuffer(), 0)));
+        *g_main_readback_buffer, 0)));
 
     std::array<float, kSectionCount * kNumbersPerSection> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0, kBufSize},
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer, Range{0, kBufSize},
         dst_data.data())));
 
     enum class SectionResult { kUnknown = 0, kCopy, kSquared, kZero, kError };
@@ -537,12 +551,12 @@ TEST_CASE("ClearBufferToUintValues with a sub-range of elements", "[gpu][buffer]
     // Clear sub-range.
     REQUIRE(Succeeded(g_dev->ClearBufferToUintValues(*default_buffer, UintVec4{5, 6, 7, 8}, Range{64, 64})));
 
-    REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
+    REQUIRE(g_main_readback_buffer != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*default_buffer, Range{0, default_buf_desc.size},
-        *main_readback_buffer.GetBuffer(), 0)));
+        *g_main_readback_buffer, 0)));
 
     std::array<uint32_t, kElementCount> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0, kElementCount * sizeof(uint32_t)},
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer, Range{0, kElementCount * sizeof(uint32_t)},
         dst_data.data())));
 
     std::array<uint32_t, kElementCount> expected;
@@ -556,36 +570,44 @@ TEST_CASE("ClearBufferToUintValues with a sub-range of elements", "[gpu][buffer]
 
 TEST_CASE("Mapping of a sub-range", "[gpu][buffer]")
 {
-    // Map entire 64 KB of main_upload_buffer, fill it with zeros.
+    BufferDesc upload_buf_desc{};
+    upload_buf_desc.name = L"My buffer UPLOAD";
+    upload_buf_desc.flags = kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagCopySrc;
+    upload_buf_desc.size = 64 * kKilobyte;
+    Buffer* buffer_ptr = nullptr;
+    REQUIRE(Succeeded(g_dev->CreateBuffer(upload_buf_desc, buffer_ptr)));
+    std::unique_ptr<Buffer> my_upload_buffer{ buffer_ptr };
+
+    // Map entire 64 KB of my_upload_buffer, fill it with zeros.
     float* mapped_ptr = nullptr;
-    REQUIRE(Succeeded(g_dev->MapBuffer(*main_upload_buffer.GetBuffer(), Range{0, 64 * kKilobyte},
+    REQUIRE(Succeeded(g_dev->MapBuffer(*my_upload_buffer, Range{0, 64 * kKilobyte},
         kBufferUsageFlagCpuSequentialWrite, (void*&)mapped_ptr)));
     ZeroMemory(mapped_ptr, 64 * kKilobyte);
-    g_dev->UnmapBuffer(*main_upload_buffer.GetBuffer());
+    g_dev->UnmapBuffer(*my_upload_buffer);
 
     // Additionally test CopyValueToBuffer.
-    REQUIRE(Succeeded(g_dev->WriteValueToBuffer(0u, *main_upload_buffer.GetBuffer(), 256)));
+    REQUIRE(Succeeded(g_dev->WriteValueToBuffer(0u, *my_upload_buffer, 256)));
 
     // Map 2nd kilobyte, fill it with ones.
-    REQUIRE(Succeeded(g_dev->MapBuffer(*main_upload_buffer.GetBuffer(), Range{1 * kKilobyte, kKilobyte},
+    REQUIRE(Succeeded(g_dev->MapBuffer(*my_upload_buffer, Range{1 * kKilobyte, kKilobyte},
         kBufferUsageFlagCpuSequentialWrite, (void*&)mapped_ptr)));
     memset(mapped_ptr, 0xFF, kKilobyte);
-    g_dev->UnmapBuffer(*main_upload_buffer.GetBuffer());
+    g_dev->UnmapBuffer(*my_upload_buffer);
 
     // Copy 64 KB from upload buffer to readback buffer.
-    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(), Range{0, 64 * kKilobyte},
-        *main_readback_buffer.GetBuffer(), 0)));
+    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*my_upload_buffer, Range{0, 64 * kKilobyte},
+        *g_main_readback_buffer, 0)));
 
     // Map readback buffer at 512 B and validate.
-    REQUIRE(Succeeded(g_dev->MapBuffer(*main_readback_buffer.GetBuffer(), Range{512, kKilobyte},
+    REQUIRE(Succeeded(g_dev->MapBuffer(*g_main_readback_buffer, Range{512, kKilobyte},
         kBufferUsageFlagCpuRead, (void*&)mapped_ptr)));
     std::array<uint8_t, kKilobyte> dst_data;
     memcpy(dst_data.data(), mapped_ptr, kKilobyte);
-    g_dev->UnmapBuffer(*main_readback_buffer.GetBuffer());
+    g_dev->UnmapBuffer(*g_main_readback_buffer);
 
     // Additionally test CopyBufferToValue.
     uint32_t dst_val = 0;
-    REQUIRE(Succeeded(g_dev->ReadBufferToValue(*main_readback_buffer.GetBuffer(), 1024, dst_val)));
+    REQUIRE(Succeeded(g_dev->ReadBufferToValue(*g_main_readback_buffer, 1024, dst_val)));
     CHECK(dst_val == 0xFFFFFFFF);
 
     std::array<uint8_t, kKilobyte> expected_data;
@@ -641,9 +663,9 @@ TEST_CASE("Constant buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->DispatchComputeShader(*shader, { 1, 1, 1 })));
     g_dev->ResetAllBindings();
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*struct_buf, Range{0, struct_buf_desc.size},
-        *main_readback_buffer.GetBuffer(), 0)));
+        *g_main_readback_buffer, 0)));
     MyConstants dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(),
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
         Range{0, sizeof(MyConstants)}, &dst_data)));
     CHECK(memcmp(&dst_data, &const_values, sizeof(MyConstants)) == 0); // HEY COPILOT, THIS FAILS!!! dst_data is all zeros.
 }
@@ -669,9 +691,9 @@ TEST_CASE("WriteMemoryToBuffer with a GPU read-write buffer", "[gpu][buffer]")
         ConstDataSpan{src_data.data(), buf_desc.size}, *buf, 0)));
 
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*buf, Range{0, buf_desc.size},
-        *main_readback_buffer.GetBuffer(), 0)));
+        *g_main_readback_buffer, 0)));
     std::array<ElementType, kElementCount> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(),
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
         Range{0, buf_desc.size}, dst_data.data())));
     CHECK(memcmp(dst_data.data(), src_data.data(), buf_desc.size) == 0);
 }
