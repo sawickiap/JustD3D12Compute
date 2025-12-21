@@ -1,33 +1,413 @@
 #include <jd3d12/core.hpp>
+#include "internal_utils.hpp"
 
-#if 0
+namespace jd3d12
+{
+
 //extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = D3D12_SDK_VERSION; }
 //extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
 static const UINT D3D12SDKVersion = D3D12_SDK_VERSION;
 static const char* D3D12SDKPath = ".\\D3D12\\";
 
-namespace
+////////////////////////////////////////////////////////////////////////////////
+// Type definitions
+
+class DeviceObject
 {
+public:
+    DeviceObject() = default;
+    DeviceObject(Device* device, const wchar_t* name);
+    DeviceObject(Device* device, const DeviceDesc& desc);
+    virtual ~DeviceObject() = 0 { }
 
-    class Singleton
+    Device* GetDevice() const noexcept { return device_; }
+    DeviceImpl* GetDeviceImpl() const noexcept
     {
-    public:
-        Environment* env_ = nullptr;
-        Device* first_dev_ = nullptr;
-        size_t dev_count_ = 0;
-        std::vector<StaticShader*> static_shaders_;
-        std::vector<StaticBuffer*> static_buffers_;
+        assert(device_ != nullptr);
+        return device_->GetImpl();
+    }
+    ID3D12Device* GetD3d12Device() const noexcept;
+    const wchar_t* GetName() const { return !name_.empty() ? name_.c_str() : nullptr; }
 
-        static Singleton& GetInstance()
-        {
-            static Singleton instance;
-            return instance;
-        }
+    static void SetDeviceObjectName(uint32_t device_flags, ID3D12Object* obj, const wchar_t* name,
+        const wchar_t* suffix = nullptr);
+    void SetObjectName(ID3D12Object* obj, const wchar_t* name, const wchar_t* suffix = nullptr);
 
-    private:
-    };
+protected:
+    Device* const device_ = nullptr;
+    std::wstring name_;
+};
 
-} // namespace
+class StaticShader;
+class StaticBuffer;
+
+class Singleton
+{
+public:
+    EnvironmentImpl* env_ = nullptr;
+    Device* first_dev_ = nullptr;
+    size_t dev_count_ = 0;
+    std::vector<StaticShader*> static_shaders_;
+    std::vector<StaticBuffer*> static_buffers_;
+
+    static Singleton& GetInstance()
+    {
+        static Singleton instance;
+        return instance;
+    }
+
+private:
+};
+
+enum class BufferStrategy
+{
+    kNone, kUpload, kGpuUpload, kDefault, kReadback
+};
+
+class BufferImpl : public DeviceObject
+{
+public:
+    BufferImpl(Buffer* parent, Device* device, const BufferDesc& desc);
+    ~BufferImpl() override;
+    Result Init(ConstDataSpan initial_data);
+
+    size_t GetSize() const noexcept { return desc_.size; }
+    uint32_t GetFlags() const noexcept { return desc_.flags; }
+    Format GetElementFormat() const noexcept { return desc_.element_format; }
+    size_t GetStructureSize() const noexcept { return desc_.structure_size; }
+    size_t GetElementSize() const noexcept;
+    ID3D12Resource* GetResource() const noexcept { return resource_; }
+
+private:
+    Buffer* const parent_;
+    BufferDesc desc_;
+    BufferStrategy strategy_ = BufferStrategy::kNone;
+    CComPtr<ID3D12Resource> resource_;
+    void* persistently_mapped_ptr_ = nullptr;
+    bool is_user_mapped_ = false;
+
+    Result InitParameters(size_t initial_data_size);
+    static D3D12_RESOURCE_STATES GetInitialState(D3D12_HEAP_TYPE heap_type);
+
+    Result WriteInitialData(ConstDataSpan initial_data);
+
+    friend class Buffer;
+    friend class StaticBuffer;
+    friend class DeviceImpl;
+    JD3D12_NO_COPY_CLASS(BufferImpl)
+};
+
+class ShaderImpl : public DeviceObject
+{
+public:
+    ShaderImpl(Shader* parent, Device* device, const ShaderDesc& desc);
+    ~ShaderImpl();
+    Result Init(ConstDataSpan bytecode);
+
+    ID3D12PipelineState* GetPipelineState() const noexcept { return pipeline_state_; }
+
+private:
+    Shader* const parent_;
+    ShaderDesc desc_ = {};
+    CComPtr<ID3D12PipelineState> pipeline_state_;
+
+    friend class Device;
+    JD3D12_NO_COPY_CLASS(ShaderImpl)
+};
+
+class DescriptorHeap : public DeviceObject
+{
+public:
+    static constexpr uint32_t kMaxDescriptorCount = 65536;
+    static constexpr uint32_t kStaticDescriptorCount = 3;
+
+    DescriptorHeap(Device* device, const wchar_t* device_name, bool shader_visible)
+        : DeviceObject{device, device_name}
+        , shader_visible_{shader_visible}
+    {
+    }
+    Result Init(const wchar_t* device_name);
+
+    ID3D12DescriptorHeap* GetDescriptorHeap() const noexcept { return descriptor_heap_; }
+    D3D12_GPU_DESCRIPTOR_HANDLE GetGpuHandleBase() const noexcept { assert(shader_visible_); return gpu_handle_; }
+    D3D12_CPU_DESCRIPTOR_HANDLE GetCpuHandleBase() const noexcept { return cpu_handle_; }
+    D3D12_GPU_DESCRIPTOR_HANDLE GetGpuHandleForDescriptor(uint32_t index) const noexcept;
+    D3D12_CPU_DESCRIPTOR_HANDLE GetCpuHandleForDescriptor(uint32_t index) const noexcept;
+
+    void ClearDynamic();
+    HRESULT AllocateDynamic(uint32_t& out_index);
+
+private:
+    const bool shader_visible_ = false;
+    uint32_t handle_increment_size_ = 0;
+    CComPtr<ID3D12DescriptorHeap> descriptor_heap_;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle_ = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle_ = {};
+    uint32_t next_dynamic_descriptor_index_ = kStaticDescriptorCount;
+};
+
+enum ResourceUsageFlags
+{
+    kResourceUsageFlagRead = 0x1,
+    kResourceUsageFlagWrite = 0x2,
+};
+
+struct ResourceUsage
+{
+    uint32_t flags = 0; // Use ResourceUsageFlags.
+    D3D12_RESOURCE_STATES last_state = D3D12_RESOURCE_STATE_COMMON;
+};
+
+class ResourceUsageMap
+{
+public:
+    std::map<BufferImpl*, ResourceUsage> map_;
+
+    bool IsUsed(BufferImpl* buf, uint32_t usage_flags) const;
+};
+
+class MainRootSignature : public DeviceObject
+{
+public:
+    static constexpr uint32_t kMaxCBVCount = 16;
+    static constexpr uint32_t kMaxSRVCount = 16;
+    static constexpr uint32_t kMaxUAVCount = 8;
+    static constexpr uint32_t kTotalParamCount = kMaxCBVCount + kMaxSRVCount + kMaxUAVCount;
+
+    static uint32_t GetRootParamIndexForCBV(uint32_t cbv_index)
+    {
+        return cbv_index;
+    }
+    static uint32_t GetRootParamIndexForSRV(uint32_t srv_index)
+    {
+        return kMaxCBVCount + srv_index;
+    }
+    static uint32_t GetRootParamIndexForUAV(uint32_t uav_index)
+    {
+        return kMaxCBVCount + kMaxSRVCount + uav_index;
+    }
+
+    MainRootSignature(Device* device) : DeviceObject{device, nullptr} {}
+    ID3D12RootSignature* GetRootSignature() const noexcept { return root_signature_; }
+    Result Init();
+
+private:
+    CComPtr<ID3D12RootSignature> root_signature_;
+};
+
+struct Binding
+{
+    BufferImpl* buffer = nullptr;
+    Range byte_range = kFullRange;
+    uint32_t descriptor_index = UINT32_MAX;
+};
+
+struct BindingState
+{
+    Binding cbv_bindings_[MainRootSignature::kMaxCBVCount];
+    Binding srv_bindings_[MainRootSignature::kMaxSRVCount];
+    Binding uav_bindings_[MainRootSignature::kMaxUAVCount];
+
+    void ResetDescriptors();
+    bool IsBufferBound(BufferImpl* buf);
+};
+
+class DeviceImpl : public DeviceObject
+{
+public:
+    DeviceImpl(Device* parent, Environment* env, const DeviceDesc& desc);
+    ~DeviceImpl();
+    Result Init();
+
+    Environment* GetEnvironment() const noexcept { return env_; }
+    ID3D12Device* GetDevice() const noexcept { return device_; }
+    D3D12_FEATURE_DATA_D3D12_OPTIONS16 GetOptions16() const noexcept { return options16_; }
+
+    Result CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer);
+    Result CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan initial_data,
+        Buffer*& out_buffer);
+    Result CreateBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path,
+        Buffer*& out_buffer);
+
+    Result CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan bytecode,
+        Shader*& out_shader);
+    Result CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
+        Shader*& out_shader);
+
+    Result MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_usage_flag, void*& out_data_ptr,
+        uint32_t command_flags = 0);
+    void UnmapBuffer(BufferImpl& buf);
+
+    Result ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range, void* dst_memory,
+        uint32_t command_flags = 0);
+    Result WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_buf, size_t dst_byte_offset,
+        uint32_t command_flags = 0);
+
+    template<typename T>
+    Result ReadBufferToValue(Buffer& src_buf, size_t src_byte_offset, T& out_val,
+        uint32_t command_flags = 0)
+    {
+        return ReadBufferToMemory(src_buf, Range{ src_byte_offset, sizeof(out_val) }, &out_val, command_flags);
+    }
+    template<typename T>
+    Result WriteValueToBuffer(const T& src_val, Buffer& dst_buf, size_t dst_byte_offset,
+        uint32_t command_flags = 0)
+    {
+        return WriteMemoryToBuffer(ConstDataSpan{ &src_val, sizeof(src_val) }, dst_buf, dst_byte_offset, command_flags);
+    }
+
+    Result SubmitPendingCommands();
+    Result WaitForGPU(uint32_t timeout_milliseconds = kTimeoutInfinite);
+
+    Result CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf);
+    Result CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, BufferImpl& dst_buf, size_t dst_byte_offset);
+
+    Result ClearBufferToUintValues(BufferImpl& buf, const UintVec4& values, Range element_range = kFullRange);
+    Result ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& values, Range element_range = kFullRange);
+
+    void ResetAllBindings();
+    Result BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range byte_range = kFullRange);
+    Result BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range = kFullRange);
+    Result BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_range = kFullRange);
+    Result DispatchComputeShader(ShaderImpl& shader, const UintVec3& group_count);
+
+private:
+    enum class CommandListState { kNone, kRecording, kExecuting };
+
+    Device* const parent_;
+    Environment* const env_;
+    DeviceDesc desc_{};
+    CComPtr<ID3D12Device> device_;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16_{};
+
+    CComPtr<ID3D12CommandQueue> command_queue_;
+    CComPtr<ID3D12CommandAllocator> command_allocator_;
+    CComPtr<ID3D12GraphicsCommandList2> command_list_;
+    CommandListState command_list_state_ = CommandListState::kRecording;
+    CComPtr<ID3D12Fence> fence_;
+    std::unique_ptr<HANDLE, CloseHandleDeleter> fence_event_;
+    uint64_t submitted_fence_value_ = 0;
+    // Used in CommandListState::kRecording and kExecuting.
+    ResourceUsageMap resource_usage_map_;
+    std::set<ShaderImpl*> shader_usage_set_;
+    DescriptorHeap shader_visible_descriptor_heap_;
+    DescriptorHeap shader_invisible_descriptor_heap_;
+    BindingState binding_state_;
+
+    std::unique_ptr<MainRootSignature> main_root_signature_;
+
+    std::atomic<size_t> buffer_count_{ 0 };
+    std::atomic<size_t> shader_count_{ 0 };
+
+    // Static descriptors in descriptor_heap_.
+    uint32_t null_cbv_index_ = 0;
+    uint32_t null_srv_index_ = 1;
+    uint32_t null_uav_index_ = 2;
+
+    // Starts executing recorded commands on the GPU. (kRecording -> kExecuting)
+    Result ExecuteRecordedCommands();
+    // Waits on the CPU until the GPU completes execution. (kExecuting -> kNone)
+    Result WaitForCommandExecution(uint32_t timeout_milliseconds);
+    // Resets command list to the recording state. (kNone -> kRecording)
+    Result ResetCommandListForRecording();
+
+    Result EnsureCommandListState(CommandListState desired_state, uint32_t timeout_milliseconds = kTimeoutInfinite);
+
+    Result WaitForBufferUnused(BufferImpl* buf);
+    Result WaitForShaderUnused(ShaderImpl* shader);
+    Result UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state);
+    Result UpdateRootArguments();
+    void FreeDescriptor(uint32_t desc_index);
+    Result CreateNullDescriptors();
+    Result CreateStaticShaders();
+    Result CreateStaticBuffers();
+    void DestroyStaticShaders();
+    void DestroyStaticBuffers();
+    Result BeginClearBufferToValues(BufferImpl& buf, Range element_range,
+        D3D12_GPU_DESCRIPTOR_HANDLE& out_shader_visible_gpu_desc_handle,
+        D3D12_CPU_DESCRIPTOR_HANDLE& out_shader_invisible_cpu_desc_handle);
+
+    friend class Environment;
+    friend class EnvironmentImpl;
+    friend class DeviceObject;
+    friend class BufferImpl;
+    friend class ShaderImpl;
+    JD3D12_NO_COPY_CLASS(DeviceImpl)
+};
+
+class ShaderCompiler
+{
+public:
+    ShaderCompiler() = default;
+    ~ShaderCompiler() = default;
+    Result Init();
+    bool IsValid() const noexcept { return compiler_ != nullptr; }
+
+private:
+    HMODULE module_ = nullptr;
+    DxcCreateInstanceProc create_instance_proc_ = nullptr;
+    CComPtr<IDxcUtils> utils_;
+    CComPtr<IDxcCompiler3> compiler_;
+    CComPtr<IDxcIncludeHandler> include_handler_;
+
+    JD3D12_NO_COPY_CLASS(ShaderCompiler)
+};
+
+class EnvironmentImpl
+{
+public:
+    EnvironmentImpl(Environment* parent);
+    ~EnvironmentImpl();
+    Result Init();
+
+    IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
+    IDXGIAdapter1* GetAdapter1() const noexcept { return adapter_; }
+    ID3D12SDKConfiguration1* GetSDKConfiguration1() const noexcept { return sdk_config1_; }
+    ID3D12DeviceFactory* GetDeviceFactory() const noexcept { return device_factory_; }
+
+    Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
+
+private:
+    Environment* const parent_;
+    CComPtr<IDXGIFactory6> dxgi_factory6_;
+    UINT selected_adapter_index_ = UINT32_MAX;
+    CComPtr<IDXGIAdapter1> adapter_;
+    CComPtr<ID3D12SDKConfiguration1> sdk_config1_;
+    CComPtr<ID3D12DeviceFactory> device_factory_;
+    std::atomic<size_t> device_count_{ 0 };
+    ShaderCompiler shader_compiler_;
+
+    JD3D12_NO_COPY_CLASS(EnvironmentImpl)
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// class DeviceObject
+
+DeviceObject::DeviceObject(Device* device, const wchar_t* name)
+    : device_{device}
+{
+    assert(device != nullptr && device->GetImpl() != nullptr);
+
+    if ((device->GetImpl()->desc_.flags & kDeviceFlagDisableNameStoring) == 0 && !IsStringEmpty(name))
+        name_ = name;
+}
+
+DeviceObject::DeviceObject(Device* device, const DeviceDesc& desc)
+    : device_{device}
+{
+    assert(device != nullptr);
+
+    // This constructor is inteded for Device class constructor, where device->desc_ is not yet initialized.
+    if ((desc.flags & kDeviceFlagDisableNameStoring) == 0 && !IsStringEmpty(desc.name))
+        name_ = desc.name;
+}
+
+ID3D12Device* DeviceObject::GetD3d12Device() const noexcept
+{
+    DeviceImpl* dev_impl = GetDeviceImpl();
+    assert(dev_impl != nullptr);
+    return dev_impl->GetDevice();
+}
 
 void DeviceObject::SetDeviceObjectName(uint32_t device_flags, ID3D12Object *obj, const wchar_t* name,
     const wchar_t* suffix)
@@ -51,23 +431,462 @@ void DeviceObject::SetDeviceObjectName(uint32_t device_flags, ID3D12Object *obj,
 void DeviceObject::SetObjectName(ID3D12Object* obj, const wchar_t* name, const wchar_t* suffix)
 {
     if(device_ != nullptr)
-        SetDeviceObjectName(device_->desc_.flags, obj, name, suffix);
+        SetDeviceObjectName(GetDeviceImpl()->desc_.flags, obj, name, suffix);
 }
 
-Device::Device(Environment* env, const DeviceDesc& desc)
-    : DeviceObject{ this, desc }
+////////////////////////////////////////////////////////////////////////////////
+// class BufferImpl
+
+Result BufferImpl::InitParameters(size_t initial_data_size)
+{
+    ASSERT_OR_RETURN((desc_.flags &
+        (kBufferUsageMaskCpu | kBufferUsageMaskCopy | kBufferUsageMaskGpu)) != 0,
+        "At least one usage flag must be specified - a buffer with no usage flags makes no sense.");
+    ASSERT_OR_RETURN(CountBitsSet(desc_.flags & kBufferUsageMaskCpu) <= 1,
+        "kBufferUsageFlagCpu* are mutually exclusive - you can specify at most 1.");
+    ASSERT_OR_RETURN(CountBitsSet(desc_.flags & (kBufferUsageFlagGpuReadOnly | kBufferUsageFlagGpuReadWrite)) <= 1,
+        "kBufferUsageFlagGpuReadOnly, kBufferUsageFlagGpuReadWrite are mutually exclusive - you can specify at most 1.");
+
+    const bool is_typed = (desc_.flags & kBufferFlagTyped) != 0;
+    const bool is_structured = (desc_.flags & kBufferFlagStructured) != 0;
+
+    const uint32_t type_bit_count = CountBitsSet(desc_.flags
+        & (kBufferFlagTyped | kBufferFlagStructured | kBufferFlagByteAddress));
+    ASSERT_OR_RETURN(type_bit_count <= 1,
+        "kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress are mutually exclusive - you can specify at most 1.");
+
+    ASSERT_OR_RETURN(desc_.size > 0 && desc_.size % 4 == 0, "Buffer size must be greater than 0 and a multiple of 4.");
+    ASSERT_OR_RETURN(initial_data_size <= desc_.size, "initial_data_size exceeds buffer size.");
+
+    if(initial_data_size > 0)
+    {
+        // TODO Remove this limitation in the future.
+        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0,
+            "Buffer initial data can only be used with kBufferUsageCpuSequentialWrite.");
+    }
+
+    ASSERT_OR_RETURN(is_typed == (desc_.element_format != Format::kUnknown),
+        "element_format should be set if and only if the buffer is used as typed buffer.");
+    if(is_typed)
+    {
+        const FormatDesc* format_desc = GetFormatDesc(desc_.element_format);
+        ASSERT_OR_RETURN(format_desc != nullptr && format_desc->bits_per_element > 0
+            && format_desc->bits_per_element % 8 == 0,
+            "element_format must be a valid format with size multiple of 8 bits.");
+    }
+
+    ASSERT_OR_RETURN(is_structured == (desc_.structure_size > 0),
+        "structure_size should be set if and only if the buffer is used as structured buffer.");
+    if(is_structured)
+    {
+        ASSERT_OR_RETURN(desc_.structure_size % 4 == 0, "structure_size must be a multiple of 4.");
+    }
+
+    const size_t element_size = GetElementSize();
+    if(element_size > 0)
+    {
+        ASSERT_OR_RETURN(desc_.size % element_size == 0, "Buffer size must be a multiple of element size.");
+    }
+
+    // Choose strategy.
+    if((desc_.flags & kBufferUsageFlagGpuReadWrite) != 0)
+    {
+        strategy_ = BufferStrategy::kDefault;
+        // kBufferUsageFlagCpuSequentialWrite is allowed.
+        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuRead) == 0,
+            "kBufferUsageFlagCpuRead cannot be used with kBufferUsageFlagGpuReadWrite.");
+    }
+    else if((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0)
+    {
+        strategy_ = BufferStrategy::kUpload;
+
+        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopyDst) == 0,
+            "BufferUsageFlagCopyDst cannot be used with kBufferUsageFlagCpuSequentialWrite.");
+        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagGpuReadWrite) == 0,
+            "kBufferUsageFlagGpuReadWrite cannot be used with kBufferUsageFlagCpuSequentialWrite.");
+    }
+    else if((desc_.flags & kBufferUsageFlagCpuRead) != 0)
+    {
+        strategy_ = BufferStrategy::kReadback;
+
+        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopySrc) == 0,
+            "kBufferUsageFlagCopySrc cannot be used with kBufferUsageFlagCpuRead.");
+        ASSERT_OR_RETURN((desc_.flags & kBufferUsageMaskGpu) == 0,
+            "kBufferUsageFlagGpu* cannot be used with kBufferUsageFlagCpuRead.");
+    }
+    else
+    {
+        strategy_ = BufferStrategy::kDefault;
+    }
+
+    return kOK;
+}
+
+D3D12_RESOURCE_STATES BufferImpl::GetInitialState(D3D12_HEAP_TYPE heap_type)
+{
+    switch(heap_type)
+    {
+    case D3D12_HEAP_TYPE_DEFAULT:
+        return D3D12_RESOURCE_STATE_COMMON;
+    case D3D12_HEAP_TYPE_UPLOAD:
+    case D3D12_HEAP_TYPE_GPU_UPLOAD:
+        return D3D12_RESOURCE_STATE_GENERIC_READ;
+    case D3D12_HEAP_TYPE_READBACK:
+        return D3D12_RESOURCE_STATE_COPY_DEST;
+    default:
+        assert(0);
+        return D3D12_RESOURCE_STATE_COMMON;
+    }
+}
+
+BufferImpl::BufferImpl(Buffer* parent, Device* device, const BufferDesc& desc)
+    : DeviceObject{device, desc.name}
+    , parent_{parent}
+    , desc_{desc}
+{
+    ++GetDeviceImpl()->buffer_count_;
+}
+
+BufferImpl::~BufferImpl()
+{
+    DeviceImpl* const dev = GetDeviceImpl();
+
+    HRESULT hr = dev->WaitForBufferUnused(this);
+    assert(SUCCEEDED(hr) && "Failed to wait for buffer unused in Buffer destructor.");
+
+    assert(!is_user_mapped_ && "Destroying buffer that is still mapped - missing call to Device::UnmapBuffer.");
+
+    --dev->buffer_count_;
+}
+
+size_t BufferImpl::GetElementSize() const noexcept
+{
+    if ((desc_.flags & kBufferFlagTyped) != 0)
+    {
+        assert(desc_.element_format != Format::kUnknown);
+        const FormatDesc* format_desc = GetFormatDesc(desc_.element_format);
+        if(format_desc != nullptr && format_desc->bits_per_element % 8 == 0)
+            return format_desc->bits_per_element / 8;
+    }
+    else if ((desc_.flags & kBufferFlagStructured) != 0)
+    {
+        return desc_.structure_size;
+    }
+    else if ((desc_.flags & kBufferFlagByteAddress) != 0)
+    {
+        return sizeof(uint32_t);
+    }
+    return 0;
+}
+
+Result BufferImpl::Init(ConstDataSpan initial_data)
+{
+    if(initial_data.size > 0)
+    {
+        ASSERT_OR_RETURN(initial_data.data != nullptr,
+            "When initial_data.size > 0, initial_data pointer cannot be null.");
+    }
+
+    RETURN_IF_FAILED(InitParameters(initial_data.size));
+    assert(strategy_ != BufferStrategy::kNone);
+
+    D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+    if((desc_.flags & kBufferUsageFlagGpuReadWrite) != 0)
+    {
+        flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    }
+
+    CD3DX12_RESOURCE_DESC resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc_.size, flags);
+
+    D3D12_HEAP_TYPE heap_type = D3D12_HEAP_TYPE_DEFAULT;
+    switch(strategy_)
+    {
+    case BufferStrategy::kDefault:
+        heap_type = D3D12_HEAP_TYPE_DEFAULT;
+        break;
+    case BufferStrategy::kUpload:
+        heap_type = D3D12_HEAP_TYPE_UPLOAD;
+        break;
+    case BufferStrategy::kGpuUpload:
+        heap_type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+        break;
+    case BufferStrategy::kReadback:
+        heap_type = D3D12_HEAP_TYPE_READBACK;
+        break;
+    default:
+        assert(0);
+    }
+    CD3DX12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES{heap_type};
+    const D3D12_RESOURCE_STATES initial_state = GetInitialState(heap_type);
+    CHECK_HR(GetD3d12Device()->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, initial_state, nullptr, IID_PPV_ARGS(&resource_)));
+
+    SetObjectName(resource_, desc_.name);
+    desc_.name = nullptr;
+
+    if (strategy_ == BufferStrategy::kUpload
+        || strategy_ == BufferStrategy::kGpuUpload
+        || strategy_ == BufferStrategy::kReadback)
+    {
+        RETURN_IF_FAILED(resource_->Map(0, nullptr, &persistently_mapped_ptr_));
+    }
+
+    RETURN_IF_FAILED(WriteInitialData(initial_data));
+
+    return kOK;
+}
+
+Result BufferImpl::WriteInitialData(ConstDataSpan initial_data)
+{
+    if(initial_data.size == 0)
+        return kFalse;
+
+    ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0,
+        "Buffer doesn't have kBufferUsageFlagCpuSequentialWrite but initial data was specified.");
+
+    assert(persistently_mapped_ptr_ != nullptr);
+    memcpy(persistently_mapped_ptr_, initial_data.data, initial_data.size);
+
+    return kOK;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class ShaderImpl
+
+ShaderImpl::ShaderImpl(Shader* parent, Device* device, const ShaderDesc& desc)
+    : DeviceObject{device, desc.name}
+    , parent_{parent}
+    , desc_{desc}
+{
+    ++device->GetImpl()->shader_count_;
+}
+
+ShaderImpl::~ShaderImpl()
+{
+    DeviceImpl* const dev = GetDeviceImpl();
+    HRESULT hr = dev->WaitForShaderUnused(this);
+    assert(SUCCEEDED(hr) && "Failed to wait for shader unused in Shader destructor.");
+    --dev->shader_count_;
+}
+
+Result ShaderImpl::Init(ConstDataSpan bytecode)
+{
+    DeviceImpl* const dev = GetDeviceImpl();
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc = {};
+    pso_desc.pRootSignature = dev->main_root_signature_->GetRootSignature();
+    pso_desc.CS.pShaderBytecode = bytecode.data;
+    pso_desc.CS.BytecodeLength = bytecode.size;
+    RETURN_IF_FAILED(dev->GetDevice()->CreateComputePipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_state_)));
+
+    SetObjectName(pipeline_state_, desc_.name);
+    desc_.name = nullptr;
+
+    return kOK;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class DescriptorHeap
+
+Result DescriptorHeap::Init(const wchar_t* device_name)
+{
+    ID3D12Device* const d3d12_dev = GetD3d12Device();
+
+    constexpr D3D12_DESCRIPTOR_HEAP_TYPE heap_type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+
+    handle_increment_size_ = d3d12_dev->GetDescriptorHandleIncrementSize(heap_type);
+
+    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+    desc.Type = heap_type;
+    desc.NumDescriptors = kMaxDescriptorCount;
+    if(shader_visible_)
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    RETURN_IF_FAILED(d3d12_dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptor_heap_)));
+
+    SetObjectName(descriptor_heap_, device_name, shader_visible_
+        ? L"Descriptor heap (shader-visible)"
+        : L"Descriptor heap (shader-invisible)");
+
+    if(shader_visible_)
+        gpu_handle_ = descriptor_heap_->GetGPUDescriptorHandleForHeapStart();
+    cpu_handle_ = descriptor_heap_->GetCPUDescriptorHandleForHeapStart();
+
+    return kOK;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE DescriptorHeap::GetGpuHandleForDescriptor(uint32_t index) const noexcept
+{
+    assert(shader_visible_);
+    assert(index < kMaxDescriptorCount);
+
+    D3D12_GPU_DESCRIPTOR_HANDLE h = gpu_handle_;
+    h.ptr += index * handle_increment_size_;
+    return h;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::GetCpuHandleForDescriptor(uint32_t index) const noexcept
+{
+    assert(index < kMaxDescriptorCount);
+
+    D3D12_CPU_DESCRIPTOR_HANDLE h = cpu_handle_;
+    h.ptr += index * handle_increment_size_;
+    return h;
+}
+
+HRESULT DescriptorHeap::AllocateDynamic(uint32_t& out_index)
+{
+    if(next_dynamic_descriptor_index_ == kMaxDescriptorCount)
+        return kErrorTooManyObjects;
+    out_index = next_dynamic_descriptor_index_++;
+    return kOK;
+}
+
+void DescriptorHeap::ClearDynamic()
+{
+    next_dynamic_descriptor_index_ = kStaticDescriptorCount;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class ResourceUsageMap
+
+bool ResourceUsageMap::IsUsed(BufferImpl* buf, uint32_t usage_flags) const
+{
+    const auto it = map_.find(buf);
+    if(it == map_.end())
+        return false;
+    return (it->second.flags & usage_flags) != 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class MainRootSignature
+
+Result MainRootSignature::Init()
+{
+    D3D12_DESCRIPTOR_RANGE desc_ranges[kTotalParamCount] = {};
+    D3D12_ROOT_PARAMETER params[kTotalParamCount] = {};
+    uint32_t param_index = 0;
+    for(uint32_t i = 0; i < kMaxCBVCount; ++i, ++param_index)
+    {
+        desc_ranges[param_index].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+        desc_ranges[param_index].NumDescriptors = 1;
+        desc_ranges[param_index].BaseShaderRegister = i;
+        desc_ranges[param_index].RegisterSpace = 0;
+        desc_ranges[param_index].OffsetInDescriptorsFromTableStart = 0;
+
+        params[param_index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[param_index].DescriptorTable.NumDescriptorRanges = 1;
+        params[param_index].DescriptorTable.pDescriptorRanges = &desc_ranges[param_index];
+        params[param_index].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+    for(uint32_t i = 0; i < kMaxSRVCount; ++i, ++param_index)
+    {
+        desc_ranges[param_index].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        desc_ranges[param_index].NumDescriptors = 1;
+        desc_ranges[param_index].BaseShaderRegister = i;
+        desc_ranges[param_index].RegisterSpace = 0;
+        desc_ranges[param_index].OffsetInDescriptorsFromTableStart = 0;
+
+        params[param_index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[param_index].DescriptorTable.NumDescriptorRanges = 1;
+        params[param_index].DescriptorTable.pDescriptorRanges = &desc_ranges[param_index];
+        params[param_index].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+    for(uint32_t i = 0; i < kMaxUAVCount; ++i, ++param_index)
+    {
+        desc_ranges[param_index].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        desc_ranges[param_index].NumDescriptors = 1;
+        desc_ranges[param_index].BaseShaderRegister = i;
+        desc_ranges[param_index].RegisterSpace = 0;
+        desc_ranges[param_index].OffsetInDescriptorsFromTableStart = 0;
+
+        params[param_index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[param_index].DescriptorTable.NumDescriptorRanges = 1;
+        params[param_index].DescriptorTable.pDescriptorRanges = &desc_ranges[param_index];
+        params[param_index].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+    assert(param_index == kTotalParamCount);
+
+    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_sig_desc = {};
+    root_sig_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_0;
+    root_sig_desc.Desc_1_0.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS
+        | D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS
+        | D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS
+        | D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS
+        | D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS
+        | D3D12_ROOT_SIGNATURE_FLAG_DENY_AMPLIFICATION_SHADER_ROOT_ACCESS
+        | D3D12_ROOT_SIGNATURE_FLAG_DENY_MESH_SHADER_ROOT_ACCESS;
+    root_sig_desc.Desc_1_0.pParameters = params;
+    root_sig_desc.Desc_1_0.NumParameters = kTotalParamCount;
+
+    ID3DBlob *root_sig_blob_ptr = nullptr, *error_blob_ptr = nullptr;
+    RETURN_IF_FAILED(D3D12SerializeVersionedRootSignature(&root_sig_desc, &root_sig_blob_ptr, &error_blob_ptr));
+    CComPtr<ID3DBlob> root_sig_blob{root_sig_blob_ptr};
+    CComPtr<ID3DBlob> error_blob{error_blob_ptr};
+
+    RETURN_IF_FAILED(GetD3d12Device()->CreateRootSignature(0, root_sig_blob->GetBufferPointer(),
+        root_sig_blob->GetBufferSize(), IID_PPV_ARGS(&root_signature_)));
+    SetObjectName(root_signature_, L"Main root signature");
+
+    return kOK;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class BindingState
+
+void BindingState::ResetDescriptors()
+{
+    for(uint32_t slot = 0; slot < MainRootSignature::kMaxCBVCount; ++slot)
+    {
+        cbv_bindings_[slot].descriptor_index = UINT32_MAX;
+    }
+    for(uint32_t slot = 0; slot < MainRootSignature::kMaxSRVCount; ++slot)
+    {
+        srv_bindings_[slot].descriptor_index = UINT32_MAX;
+    }
+    for(uint32_t slot = 0; slot < MainRootSignature::kMaxUAVCount; ++slot)
+    {
+        uav_bindings_[slot].descriptor_index = UINT32_MAX;
+    }
+}
+
+bool BindingState::IsBufferBound(BufferImpl* buf)
+{
+    for(uint32_t slot = 0; slot < MainRootSignature::kMaxCBVCount; ++slot)
+    {
+        if(cbv_bindings_[slot].buffer == buf)
+            return true;
+    }
+    for(uint32_t slot = 0; slot < MainRootSignature::kMaxSRVCount; ++slot)
+    {
+        if(srv_bindings_[slot].buffer == buf)
+            return true;
+    }
+    for(uint32_t slot = 0; slot < MainRootSignature::kMaxUAVCount; ++slot)
+    {
+        if(uav_bindings_[slot].buffer == buf)
+            return true;
+    }
+    return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class DeviceImpl
+
+DeviceImpl::DeviceImpl(Device* parent, Environment* env, const DeviceDesc& desc)
+    : DeviceObject{ parent, desc }
+    , parent_{ parent }
     , env_{ env }
     , desc_{ desc }
     , main_root_signature_{ std::make_unique<MainRootSignature>(this) }
-    , shader_visible_descriptor_heap_{ this, desc.name, true }
-    , shader_invisible_descriptor_heap_{ this, desc.name, false }
+    , shader_visible_descriptor_heap_{ parent, desc.name, true }
+    , shader_invisible_descriptor_heap_{ parent, desc.name, false }
 {
     assert(env);
 
     Singleton& singleton = Singleton::GetInstance();
     if(singleton.dev_count_ == 0)
     {
-        singleton.first_dev_ = this;
+        singleton.first_dev_ = parent;
         singleton.dev_count_ = 1;
     }
     else
@@ -76,13 +895,7 @@ Device::Device(Environment* env, const DeviceDesc& desc)
     }
 }
 
-Device::Device()
-    : shader_visible_descriptor_heap_{this, nullptr, true}
-    , shader_invisible_descriptor_heap_{this, nullptr, false}
-{
-}
-
-Device::~Device()
+DeviceImpl::~DeviceImpl()
 {
     if(env_ == nullptr) // Empty object, created using default constructor.
         return;
@@ -108,24 +921,25 @@ Device::~Device()
     }
 }
 
-Result Device::CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer)
+Result DeviceImpl::CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer)
 {
     return CreateBufferFromMemory(desc, ConstDataSpan{nullptr, 0}, out_buffer);
 }
 
-Result Device::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan initial_data,
+Result DeviceImpl::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan initial_data,
     Buffer*& out_buffer)
 {
     out_buffer = nullptr;
 
-    auto buf = std::unique_ptr<Buffer>(new Buffer{this, desc});
-    RETURN_IF_FAILED(buf->Init(initial_data));
+    auto buf = std::make_unique<Buffer>();
+    buf->impl_ = new BufferImpl{ buf.get(), parent_, desc };
+    RETURN_IF_FAILED(buf->GetImpl()->Init(initial_data));
 
     out_buffer = buf.release();
     return kOK;
 }
 
-Result Device::CreateBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path,
+Result DeviceImpl::CreateBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path,
     Buffer*& out_buffer)
 {
     ASSERT_OR_RETURN(!IsStringEmpty(initial_data_file_path), "initial_data_file_path cannot be null or empty.");
@@ -138,7 +952,7 @@ Result Device::CreateBufferFromFile(const BufferDesc& desc, const wchar_t* initi
     return CreateBufferFromMemory(desc, ConstDataSpan{data_ptr, data_size}, out_buffer);
 }
 
-Result Device::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan bytecode,
+Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan bytecode,
     Shader*& out_shader)
 {
     out_shader = nullptr;
@@ -146,14 +960,15 @@ Result Device::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan byte
     ASSERT_OR_RETURN(bytecode.data != nullptr && bytecode.size > 0,
         "Shader bytecode cannot be null or empty.");
 
-    auto shader = std::unique_ptr<Shader>(new Shader{ this, desc });
-    RETURN_IF_FAILED(shader->Init(bytecode));
+    auto shader = std::make_unique<Shader>();
+    shader->impl_ = new ShaderImpl{ shader.get(), parent_, desc };
+    RETURN_IF_FAILED(shader->GetImpl()->Init(bytecode));
 
     out_shader = shader.release();
     return kOK;
 }
 
-Result Device::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
+Result DeviceImpl::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
     Shader*& out_shader)
 {
     ASSERT_OR_RETURN(!IsStringEmpty(bytecode_file_path), "bytecode_file_path cannot be null or empty.");
@@ -170,12 +985,11 @@ Result Device::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytec
     return CreateShaderFromMemory(desc, ConstDataSpan{data_ptr, data_size}, out_shader);
 }
 
-Result Device::MapBuffer(Buffer& buf, Range byte_range, BufferFlags cpu_usage_flag, void*& out_data_ptr,
+Result DeviceImpl::MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_usage_flag, void*& out_data_ptr,
     uint32_t command_flags)
 {
     out_data_ptr = nullptr;
-
-    ASSERT_OR_RETURN(buf.GetDevice() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN(!buf.is_user_mapped_, "Device::MapBuffer called twice. Nested mapping is not supported.");
     ASSERT_OR_RETURN(buf.persistently_mapped_ptr_ != nullptr, "Cannot map this buffer.");
     ASSERT_OR_RETURN(CountBitsSet(cpu_usage_flag &
@@ -208,18 +1022,18 @@ Result Device::MapBuffer(Buffer& buf, Range byte_range, BufferFlags cpu_usage_fl
     return kOK;
 }
 
-void Device::UnmapBuffer(Buffer& buf)
+void DeviceImpl::UnmapBuffer(BufferImpl& buf)
 {
-    assert(buf.GetDevice() == this && "Buffer does not belong to this Device.");
+    assert(buf.GetDeviceImpl() == this && "Buffer does not belong to this Device.");
     assert(buf.is_user_mapped_ && "Device::UnmapBuffer called but the buffer wasn't mapped.");
 
     buf.is_user_mapped_ = false;
 }
 
-Result Device::ReadBufferToMemory(Buffer& src_buf, Range src_byte_range, void* dst_memory,
+Result DeviceImpl::ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range, void* dst_memory,
     uint32_t command_flags)
 {
-    ASSERT_OR_RETURN(src_buf.GetDevice() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(src_buf.GetDeviceImpl() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN(!src_buf.is_user_mapped_, "Cannot call this command while the buffer is mapped.");
 
     src_byte_range = LimitRange(src_byte_range, src_buf.GetSize());
@@ -251,10 +1065,10 @@ Result Device::ReadBufferToMemory(Buffer& src_buf, Range src_byte_range, void* d
     return kOK;
 }
 
-Result Device::WriteMemoryToBuffer(ConstDataSpan src_data, Buffer& dst_buf, size_t dst_byte_offset,
+Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_buf, size_t dst_byte_offset,
     uint32_t command_flags)
 {
-    ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(dst_buf.GetDeviceImpl() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN(!dst_buf.is_user_mapped_, "Cannot call this command while the buffer is mapped.");
 
     if(src_data.size == 0)
@@ -323,23 +1137,23 @@ Result Device::WriteMemoryToBuffer(ConstDataSpan src_data, Buffer& dst_buf, size
     }
 }
 
-Result Device::SubmitPendingCommands()
+Result DeviceImpl::SubmitPendingCommands()
 {
     if(command_list_state_ == CommandListState::kRecording)
         RETURN_IF_FAILED(ExecuteRecordedCommands());
     return kOK;
 }
 
-Result Device::WaitForGPU(uint32_t timeout_milliseconds)
+Result DeviceImpl::WaitForGPU(uint32_t timeout_milliseconds)
 {
     RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kNone, timeout_milliseconds));
     return kOK;
 }
 
-Result Device::CopyBuffer(Buffer& src_buf, Buffer& dst_buf)
+Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
 {
-    ASSERT_OR_RETURN(src_buf.GetDevice() == this, "src_buf does not belong to this Device.");
-    ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "dst_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(src_buf.GetDeviceImpl() == this, "src_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(dst_buf.GetDeviceImpl() == this, "dst_buf does not belong to this Device.");
     ASSERT_OR_RETURN((src_buf.desc_.flags & kBufferUsageFlagCopySrc) != 0,
         "src_buf was not created with kBufferUsageFlagCopySource.");
     ASSERT_OR_RETURN((dst_buf.desc_.flags & kBufferUsageFlagCopyDst) != 0,
@@ -357,10 +1171,10 @@ Result Device::CopyBuffer(Buffer& src_buf, Buffer& dst_buf)
     return kOK;
 }
 
-Result Device::CopyBufferRegion(Buffer& src_buf, Range src_byte_range, Buffer& dst_buf, size_t dst_byte_offset)
+Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, BufferImpl& dst_buf, size_t dst_byte_offset)
 {
-    ASSERT_OR_RETURN(src_buf.GetDevice() == this, "src_buf does not belong to this Device.");
-    ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "dst_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(src_buf.GetDeviceImpl() == this, "src_buf does not belong to this Device.");
+    ASSERT_OR_RETURN(dst_buf.GetDeviceImpl() == this, "dst_buf does not belong to this Device.");
     ASSERT_OR_RETURN((src_buf.desc_.flags & kBufferUsageFlagCopySrc) != 0,
         "src_buf was not created with kBufferUsageFlagCopySource.");
     ASSERT_OR_RETURN((dst_buf.desc_.flags & kBufferUsageFlagCopyDst) != 0,
@@ -381,9 +1195,9 @@ Result Device::CopyBufferRegion(Buffer& src_buf, Range src_byte_range, Buffer& d
     return kOK;
 }
 
-Result Device::ClearBufferToUintValues(Buffer& buf, const UintVec4& values, Range element_range)
+Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& values, Range element_range)
 {
-    ASSERT_OR_RETURN(buf.GetDevice() == this,
+    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this,
         "ClearBufferToUintValues: Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
         "ClearBufferToUintValues: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
@@ -409,9 +1223,9 @@ Result Device::ClearBufferToUintValues(Buffer& buf, const UintVec4& values, Rang
     return kOK;
 }
 
-Result Device::ClearBufferToFloatValues(Buffer& buf, const FloatVec4& values, Range element_range)
+Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& values, Range element_range)
 {
-    ASSERT_OR_RETURN(buf.GetDevice() == this,
+    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this,
         "ClearBufferToFloatValues: Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
         "ClearBufferToFloatValues: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
@@ -437,7 +1251,7 @@ Result Device::ClearBufferToFloatValues(Buffer& buf, const FloatVec4& values, Ra
     return kOK;
 }
 
-void Device::ResetAllBindings()
+void DeviceImpl::ResetAllBindings()
 {
     for(uint32_t slot = 0; slot < MainRootSignature::kMaxCBVCount; ++slot)
     {
@@ -453,7 +1267,7 @@ void Device::ResetAllBindings()
     }
 }
 
-Result Device::BindConstantBuffer(uint32_t b_slot, Buffer* buf, Range byte_range)
+Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range byte_range)
 {
     ASSERT_OR_RETURN(b_slot < MainRootSignature::kMaxCBVCount, "CBV slot out of bounds.");
 
@@ -483,7 +1297,7 @@ Result Device::BindConstantBuffer(uint32_t b_slot, Buffer* buf, Range byte_range
     ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
-    ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf->GetDeviceImpl() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagGpuConstant) != 0,
         "BindConstantBuffer: Buffer was not created with kBufferUsageFlagGpuConstant.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
@@ -498,7 +1312,7 @@ Result Device::BindConstantBuffer(uint32_t b_slot, Buffer* buf, Range byte_range
     return kOK;
 }
 
-Result Device::BindBuffer(uint32_t t_slot, Buffer* buf, Range byte_range)
+Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range)
 {
     ASSERT_OR_RETURN(t_slot < MainRootSignature::kMaxSRVCount, "SRV slot out of bounds.");
 
@@ -529,7 +1343,7 @@ Result Device::BindBuffer(uint32_t t_slot, Buffer* buf, Range byte_range)
     ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
-    ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf->GetDeviceImpl() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf->desc_.flags & (kBufferUsageFlagGpuReadOnly | kBufferUsageFlagGpuReadWrite)) != 0,
         "BindBuffer: Buffer was not created with kBufferUsageFlagGpuReadOnly or kBufferUsageFlagGpuReadWrite.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
@@ -542,7 +1356,7 @@ Result Device::BindBuffer(uint32_t t_slot, Buffer* buf, Range byte_range)
     return kOK;
 }
 
-Result Device::BindRWBuffer(uint32_t u_slot, Buffer* buf, Range byte_range)
+Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_range)
 {
     ASSERT_OR_RETURN(u_slot < MainRootSignature::kMaxUAVCount, "UAV slot out of bounds.");
 
@@ -572,7 +1386,7 @@ Result Device::BindRWBuffer(uint32_t u_slot, Buffer* buf, Range byte_range)
     ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
-    ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
+    ASSERT_OR_RETURN(buf->GetDeviceImpl() == this, "Buffer does not belong to this Device.");
     ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
         "BindRWBuffer: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
@@ -585,9 +1399,10 @@ Result Device::BindRWBuffer(uint32_t u_slot, Buffer* buf, Range byte_range)
     return kOK;
 }
 
-Result Device::Init()
+Result DeviceImpl::Init()
 {
-    RETURN_IF_FAILED(env_->GetDeviceFactory()->CreateDevice(env_->GetAdapter(),
+    RETURN_IF_FAILED(env_->GetImpl()->GetDeviceFactory()->CreateDevice(
+        env_->GetImpl()->GetAdapter1(),
         D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&device_)));
 
     HRESULT hr = device_->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS16, &options16_, sizeof(options16_));
@@ -633,7 +1448,7 @@ Result Device::Init()
     return kOK;
 }
 
-Result Device::ExecuteRecordedCommands()
+Result DeviceImpl::ExecuteRecordedCommands()
 {
     assert(command_list_state_ == CommandListState::kRecording);
 
@@ -650,7 +1465,7 @@ Result Device::ExecuteRecordedCommands()
     return kOK;
 }
 
-Result Device::WaitForCommandExecution(uint32_t timeout_milliseconds)
+Result DeviceImpl::WaitForCommandExecution(uint32_t timeout_milliseconds)
 {
     assert(command_list_state_ == CommandListState::kExecuting);
 
@@ -677,7 +1492,7 @@ Result Device::WaitForCommandExecution(uint32_t timeout_milliseconds)
     return kOK;
 }
 
-Result Device::ResetCommandListForRecording()
+Result DeviceImpl::ResetCommandListForRecording()
 {
     assert(command_list_state_ == CommandListState::kNone);
 
@@ -693,7 +1508,7 @@ Result Device::ResetCommandListForRecording()
     return kOK;
 }
 
-Result Device::EnsureCommandListState(CommandListState desired_state, uint32_t timeout_milliseconds)
+Result DeviceImpl::EnsureCommandListState(CommandListState desired_state, uint32_t timeout_milliseconds)
 {
     if(desired_state == command_list_state_)
         return kOK;
@@ -710,7 +1525,7 @@ Result Device::EnsureCommandListState(CommandListState desired_state, uint32_t t
     return kOK;
 }
 
-Result Device::WaitForBufferUnused(Buffer* buf)
+Result DeviceImpl::WaitForBufferUnused(BufferImpl* buf)
 {
     ASSERT_OR_RETURN(!binding_state_.IsBufferBound(buf), "Buffer is still bound.");
 
@@ -719,14 +1534,14 @@ Result Device::WaitForBufferUnused(Buffer* buf)
     return kOK;
 }
 
-Result Device::WaitForShaderUnused(Shader* shader)
+Result DeviceImpl::WaitForShaderUnused(ShaderImpl* shader)
 {
     if(shader_usage_set_.find(shader) != shader_usage_set_.end())
         return EnsureCommandListState(CommandListState::kNone);
     return kOK;
 }
 
-Result Device::UseBuffer(Buffer& buf, D3D12_RESOURCE_STATES state)
+Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
 {
     assert(command_list_state_ == CommandListState::kRecording);
 
@@ -789,7 +1604,7 @@ Result Device::UseBuffer(Buffer& buf, D3D12_RESOURCE_STATES state)
     return kOK;
 }
 
-Result Device::UpdateRootArguments()
+Result DeviceImpl::UpdateRootArguments()
 {
     assert(command_list_state_ == CommandListState::kRecording);
 
@@ -992,7 +1807,7 @@ Result Device::UpdateRootArguments()
     return kOK;
 }
 
-Result Device::CreateNullDescriptors()
+Result DeviceImpl::CreateNullDescriptors()
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
 
@@ -1016,7 +1831,7 @@ Result Device::CreateNullDescriptors()
     return kOK;
 }
 
-Result Device::CreateStaticShaders()
+Result DeviceImpl::CreateStaticShaders()
 {
     Singleton& singleton = Singleton::GetInstance();
 
@@ -1030,7 +1845,7 @@ Result Device::CreateStaticShaders()
     return kOK;
 }
 
-Result Device::CreateStaticBuffers()
+Result DeviceImpl::CreateStaticBuffers()
 {
     Singleton& singleton = Singleton::GetInstance();
 
@@ -1044,7 +1859,7 @@ Result Device::CreateStaticBuffers()
     return kOK;
 }
 
-void Device::DestroyStaticShaders()
+void DeviceImpl::DestroyStaticShaders()
 {
     Singleton& singleton = Singleton::GetInstance();
     for(size_t i = singleton.static_shaders_.size(); i--; )
@@ -1055,7 +1870,7 @@ void Device::DestroyStaticShaders()
     }
 }
 
-void Device::DestroyStaticBuffers()
+void DeviceImpl::DestroyStaticBuffers()
 {
     Singleton& singleton = Singleton::GetInstance();
     for(size_t i = singleton.static_buffers_.size(); i--; )
@@ -1066,14 +1881,14 @@ void Device::DestroyStaticBuffers()
     }
 }
 
-Result Device::BeginClearBufferToValues(Buffer& buf, Range element_range,
+Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range,
     D3D12_GPU_DESCRIPTOR_HANDLE& out_shader_visible_gpu_desc_handle,
     D3D12_CPU_DESCRIPTOR_HANDLE& out_shader_invisible_cpu_desc_handle)
 {
     out_shader_visible_gpu_desc_handle = {};
     out_shader_invisible_cpu_desc_handle = {};
 
-    ASSERT_OR_RETURN(buf.GetDevice() == this, "buf does not belong to this Device.");
+    ASSERT_OR_RETURN(buf.GetDeviceImpl() == this, "buf does not belong to this Device.");
 
     RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
 
@@ -1134,31 +1949,84 @@ Result Device::BeginClearBufferToValues(Buffer& buf, Range element_range,
     return kOK;
 }
 
-Environment::Environment()
+Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& group_count)
+{
+    ASSERT_OR_RETURN(shader.GetDeviceImpl() == this, "Shader does not belong to this Device.");
+
+    if(group_count.x == 0 || group_count.y == 0 || group_count.z == 0)
+        return kFalse;
+
+    ASSERT_OR_RETURN(group_count.x <= UINT16_MAX
+        && group_count.y <= UINT16_MAX
+        && group_count.z <= UINT16_MAX, "Dispatch group count cannot exceed 65535 in any dimension.");
+
+    RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
+
+    ID3D12DescriptorHeap* const desc_heap = shader_visible_descriptor_heap_.GetDescriptorHeap();
+    command_list_->SetDescriptorHeaps(1, &desc_heap);
+
+    command_list_->SetPipelineState(shader.GetPipelineState());
+
+    command_list_->SetComputeRootSignature(main_root_signature_->GetRootSignature());
+
+    RETURN_IF_FAILED(UpdateRootArguments());
+
+    command_list_->Dispatch(group_count.x, group_count.y, group_count.z);
+
+    return kOK;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class ShaderCompiler
+
+Result ShaderCompiler::Init()
+{
+    module_ = LoadLibrary(L"f:/Libraries/_Microsoft/dxc_2025_07_14/bin/x64/dxcompiler.dll");
+    if (module_ == NULL)
+        return MakeResultFromLastError();
+
+    create_instance_proc_ = DxcCreateInstanceProc(GetProcAddress(module_, "DxcCreateInstance"));
+    if(create_instance_proc_ == nullptr)
+        return kErrorFail;
+
+    RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcUtils, IID_PPV_ARGS(&utils_)));
+    RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler_)));
+
+    RETURN_IF_FAILED(utils_->CreateDefaultIncludeHandler(&include_handler_));
+
+    return kOK;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class EnvironmentImpl
+
+EnvironmentImpl::EnvironmentImpl(Environment* parent)
+    : parent_{parent}
 {
     Singleton& singleton = Singleton::GetInstance();
     assert(singleton.env_ == nullptr && "Only one Environment instance can be created.");
     singleton.env_ = this;
 }
 
-Environment::~Environment()
+EnvironmentImpl::~EnvironmentImpl()
 {
     assert(device_count_ == 0 && "Destroying Environment object while there are still Device objects not destroyed.");
     Singleton::GetInstance().env_ = nullptr;
 }
 
-Result Environment::CreateDevice(const DeviceDesc& desc, Device*& out_device)
+Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device)
 {
     out_device = nullptr;
 
-    auto device = std::unique_ptr<Device>(new Device{ this, desc });
-    RETURN_IF_FAILED(device->Init());
+    auto device = std::make_unique<Device>();
+    device->impl_ = new DeviceImpl(device.get(), parent_, desc);
+    RETURN_IF_FAILED(device->impl_->Init());
 
     out_device = device.release();
     return kOK;
 }
 
-Result Environment::Init()
+Result EnvironmentImpl::Init()
 {
     RETURN_IF_FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgi_factory6_)));
 
@@ -1191,497 +2059,10 @@ Result Environment::Init()
     return kOK;
 }
 
-Result CreateEnvironment(Environment*& out_env)
-{
-    out_env = nullptr;
+////////////////////////////////////////////////////////////////////////////////
+// TODO
 
-    auto env = std::unique_ptr<Environment>(new Environment{});
-    RETURN_IF_FAILED(env->Init());
-
-    out_env = env.release();
-    return kOK;
-}
-
-Result Buffer::InitParameters(size_t initial_data_size)
-{
-    ASSERT_OR_RETURN((desc_.flags &
-        (kBufferUsageMaskCpu | kBufferUsageMaskCopy | kBufferUsageMaskGpu)) != 0,
-        "At least one usage flag must be specified - a buffer with no usage flags makes no sense.");
-    ASSERT_OR_RETURN(CountBitsSet(desc_.flags & kBufferUsageMaskCpu) <= 1,
-        "kBufferUsageFlagCpu* are mutually exclusive - you can specify at most 1.");
-    ASSERT_OR_RETURN(CountBitsSet(desc_.flags & (kBufferUsageFlagGpuReadOnly | kBufferUsageFlagGpuReadWrite)) <= 1,
-        "kBufferUsageFlagGpuReadOnly, kBufferUsageFlagGpuReadWrite are mutually exclusive - you can specify at most 1.");
-
-    const bool is_typed = (desc_.flags & kBufferFlagTyped) != 0;
-    const bool is_structured = (desc_.flags & kBufferFlagStructured) != 0;
-
-    const uint32_t type_bit_count = CountBitsSet(desc_.flags
-        & (kBufferFlagTyped | kBufferFlagStructured | kBufferFlagByteAddress));
-    ASSERT_OR_RETURN(type_bit_count <= 1,
-        "kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress are mutually exclusive - you can specify at most 1.");
-
-    ASSERT_OR_RETURN(desc_.size > 0 && desc_.size % 4 == 0, "Buffer size must be greater than 0 and a multiple of 4.");
-    ASSERT_OR_RETURN(initial_data_size <= desc_.size, "initial_data_size exceeds buffer size.");
-
-    if(initial_data_size > 0)
-    {
-        // TODO Remove this limitation in the future.
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0,
-            "Buffer initial data can only be used with kBufferUsageCpuSequentialWrite.");
-    }
-
-    ASSERT_OR_RETURN(is_typed == (desc_.element_format != Format::kUnknown),
-        "element_format should be set if and only if the buffer is used as typed buffer.");
-    if(is_typed)
-    {
-        const FormatDesc* format_desc = GetFormatDesc(desc_.element_format);
-        ASSERT_OR_RETURN(format_desc != nullptr && format_desc->bits_per_element > 0
-            && format_desc->bits_per_element % 8 == 0,
-            "element_format must be a valid format with size multiple of 8 bits.");
-    }
-
-    ASSERT_OR_RETURN(is_structured == (desc_.structure_size > 0),
-        "structure_size should be set if and only if the buffer is used as structured buffer.");
-    if(is_structured)
-    {
-        ASSERT_OR_RETURN(desc_.structure_size % 4 == 0, "structure_size must be a multiple of 4.");
-    }
-
-    const size_t element_size = GetElementSize();
-    if(element_size > 0)
-    {
-        ASSERT_OR_RETURN(desc_.size % element_size == 0, "Buffer size must be a multiple of element size.");
-    }
-
-    // Choose strategy.
-    if((desc_.flags & kBufferUsageFlagGpuReadWrite) != 0)
-    {
-        strategy_ = BufferStrategy::kDefault;
-        // kBufferUsageFlagCpuSequentialWrite is allowed.
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuRead) == 0,
-            "kBufferUsageFlagCpuRead cannot be used with kBufferUsageFlagGpuReadWrite.");
-    }
-    else if((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0)
-    {
-        strategy_ = BufferStrategy::kUpload;
-
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopyDst) == 0,
-            "BufferUsageFlagCopyDst cannot be used with kBufferUsageFlagCpuSequentialWrite.");
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagGpuReadWrite) == 0,
-            "kBufferUsageFlagGpuReadWrite cannot be used with kBufferUsageFlagCpuSequentialWrite.");
-    }
-    else if((desc_.flags & kBufferUsageFlagCpuRead) != 0)
-    {
-        strategy_ = BufferStrategy::kReadback;
-
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopySrc) == 0,
-            "kBufferUsageFlagCopySrc cannot be used with kBufferUsageFlagCpuRead.");
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageMaskGpu) == 0,
-            "kBufferUsageFlagGpu* cannot be used with kBufferUsageFlagCpuRead.");
-    }
-    else
-    {
-        strategy_ = BufferStrategy::kDefault;
-    }
-
-    return kOK;
-}
-
-D3D12_RESOURCE_STATES Buffer::GetInitialState(D3D12_HEAP_TYPE heap_type)
-{
-    switch(heap_type)
-    {
-    case D3D12_HEAP_TYPE_DEFAULT:
-        return D3D12_RESOURCE_STATE_COMMON;
-    case D3D12_HEAP_TYPE_UPLOAD:
-    case D3D12_HEAP_TYPE_GPU_UPLOAD:
-        return D3D12_RESOURCE_STATE_GENERIC_READ;
-    case D3D12_HEAP_TYPE_READBACK:
-        return D3D12_RESOURCE_STATE_COPY_DEST;
-    default:
-        assert(0);
-        return D3D12_RESOURCE_STATE_COMMON;
-    }
-}
-
-Buffer::Buffer(Device* device, const BufferDesc& desc)
-    : DeviceObject{device, desc.name}
-    , desc_{desc}
-{
-    ++device_->buffer_count_;
-}
-
-Buffer::~Buffer()
-{
-    if(device_ == nullptr) // Empty object, created using default constructor.
-        return;
-
-    HRESULT hr = device_->WaitForBufferUnused(this);
-    assert(SUCCEEDED(hr) && "Failed to wait for buffer unused in Buffer destructor.");
-
-    assert(!is_user_mapped_ && "Destroying buffer that is still mapped - missing call to Device::UnmapBuffer.");
-
-    --device_->buffer_count_;
-}
-
-size_t Buffer::GetElementSize() const noexcept
-{
-    if ((desc_.flags & kBufferFlagTyped) != 0)
-    {
-        assert(desc_.element_format != Format::kUnknown);
-        const FormatDesc* format_desc = GetFormatDesc(desc_.element_format);
-        if(format_desc != nullptr && format_desc->bits_per_element % 8 == 0)
-            return format_desc->bits_per_element / 8;
-    }
-    else if ((desc_.flags & kBufferFlagStructured) != 0)
-    {
-        return desc_.structure_size;
-    }
-    else if ((desc_.flags & kBufferFlagByteAddress) != 0)
-    {
-        return sizeof(uint32_t);
-    }
-    return 0;
-}
-
-Result Buffer::Init(ConstDataSpan initial_data)
-{
-    if(initial_data.size > 0)
-    {
-        ASSERT_OR_RETURN(initial_data.data != nullptr,
-            "When initial_data.size > 0, initial_data pointer cannot be null.");
-    }
-
-    RETURN_IF_FAILED(InitParameters(initial_data.size));
-    assert(strategy_ != BufferStrategy::kNone);
-
-    D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
-    if((desc_.flags & kBufferUsageFlagGpuReadWrite) != 0)
-    {
-        flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    }
-
-    CD3DX12_RESOURCE_DESC resource_desc = CD3DX12_RESOURCE_DESC::Buffer(desc_.size, flags);
-
-    D3D12_HEAP_TYPE heap_type = D3D12_HEAP_TYPE_DEFAULT;
-    switch(strategy_)
-    {
-    case BufferStrategy::kDefault:
-        heap_type = D3D12_HEAP_TYPE_DEFAULT;
-        break;
-    case BufferStrategy::kUpload:
-        heap_type = D3D12_HEAP_TYPE_UPLOAD;
-        break;
-    case BufferStrategy::kGpuUpload:
-        heap_type = D3D12_HEAP_TYPE_GPU_UPLOAD;
-        break;
-    case BufferStrategy::kReadback:
-        heap_type = D3D12_HEAP_TYPE_READBACK;
-        break;
-    default:
-        assert(0);
-    }
-    CD3DX12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES{heap_type};
-    const D3D12_RESOURCE_STATES initial_state = GetInitialState(heap_type);
-    CHECK_HR(device_->GetDevice()->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE,
-        &resource_desc, initial_state, nullptr, IID_PPV_ARGS(&resource_)));
-
-    SetObjectName(resource_, desc_.name);
-    desc_.name = nullptr;
-
-    if (strategy_ == BufferStrategy::kUpload
-        || strategy_ == BufferStrategy::kGpuUpload
-        || strategy_ == BufferStrategy::kReadback)
-    {
-        RETURN_IF_FAILED(resource_->Map(0, nullptr, &persistently_mapped_ptr_));
-    }
-
-    RETURN_IF_FAILED(WriteInitialData(initial_data));
-
-    return kOK;
-}
-
-Result Buffer::WriteInitialData(ConstDataSpan initial_data)
-{
-    if(initial_data.size == 0)
-        return kFalse;
-
-    ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0,
-        "Buffer doesn't have kBufferUsageFlagCpuSequentialWrite but initial data was specified.");
-
-    assert(persistently_mapped_ptr_ != nullptr);
-    memcpy(persistently_mapped_ptr_, initial_data.data, initial_data.size);
-
-    return kOK;
-}
-
-bool ResourceUsageMap::IsUsed(Buffer* buf, uint32_t usage_flags) const
-{
-    const auto it = map_.find(buf);
-    if(it == map_.end())
-        return false;
-    return (it->second.flags & usage_flags) != 0;
-}
-
-Shader::~Shader()
-{
-    if(device_ == nullptr) // Empty object, created using default constructor.
-        return;
-
-    HRESULT hr = device_->WaitForShaderUnused(this);
-    assert(SUCCEEDED(hr) && "Failed to wait for shader unused in Shader destructor.");
-    --device_->shader_count_;
-}
-
-Shader::Shader(Device* device, const ShaderDesc& desc)
-    : DeviceObject{device, desc.name}
-    , desc_{desc}
-{
-    ++device_->shader_count_;
-}
-
-Result Shader::Init(ConstDataSpan bytecode)
-{
-    D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc = {};
-    pso_desc.pRootSignature = device_->main_root_signature_->GetRootSignature();
-    pso_desc.CS.pShaderBytecode = bytecode.data;
-    pso_desc.CS.BytecodeLength = bytecode.size;
-    RETURN_IF_FAILED(device_->GetDevice()->CreateComputePipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_state_)));
-
-    SetObjectName(pipeline_state_, desc_.name);
-    desc_.name = nullptr;
-
-    return kOK;
-}
-
-Result MainRootSignature::Init()
-{
-    D3D12_DESCRIPTOR_RANGE desc_ranges[kTotalParamCount] = {};
-    D3D12_ROOT_PARAMETER params[kTotalParamCount] = {};
-    uint32_t param_index = 0;
-    for(uint32_t i = 0; i < kMaxCBVCount; ++i, ++param_index)
-    {
-        desc_ranges[param_index].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-        desc_ranges[param_index].NumDescriptors = 1;
-        desc_ranges[param_index].BaseShaderRegister = i;
-        desc_ranges[param_index].RegisterSpace = 0;
-        desc_ranges[param_index].OffsetInDescriptorsFromTableStart = 0;
-
-        params[param_index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        params[param_index].DescriptorTable.NumDescriptorRanges = 1;
-        params[param_index].DescriptorTable.pDescriptorRanges = &desc_ranges[param_index];
-        params[param_index].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    }
-    for(uint32_t i = 0; i < kMaxSRVCount; ++i, ++param_index)
-    {
-        desc_ranges[param_index].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        desc_ranges[param_index].NumDescriptors = 1;
-        desc_ranges[param_index].BaseShaderRegister = i;
-        desc_ranges[param_index].RegisterSpace = 0;
-        desc_ranges[param_index].OffsetInDescriptorsFromTableStart = 0;
-
-        params[param_index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        params[param_index].DescriptorTable.NumDescriptorRanges = 1;
-        params[param_index].DescriptorTable.pDescriptorRanges = &desc_ranges[param_index];
-        params[param_index].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    }
-    for(uint32_t i = 0; i < kMaxUAVCount; ++i, ++param_index)
-    {
-        desc_ranges[param_index].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-        desc_ranges[param_index].NumDescriptors = 1;
-        desc_ranges[param_index].BaseShaderRegister = i;
-        desc_ranges[param_index].RegisterSpace = 0;
-        desc_ranges[param_index].OffsetInDescriptorsFromTableStart = 0;
-
-        params[param_index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        params[param_index].DescriptorTable.NumDescriptorRanges = 1;
-        params[param_index].DescriptorTable.pDescriptorRanges = &desc_ranges[param_index];
-        params[param_index].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    }
-    assert(param_index == kTotalParamCount);
-
-    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_sig_desc = {};
-    root_sig_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_0;
-    root_sig_desc.Desc_1_0.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS
-        | D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS
-        | D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS
-        | D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS
-        | D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS
-        | D3D12_ROOT_SIGNATURE_FLAG_DENY_AMPLIFICATION_SHADER_ROOT_ACCESS
-        | D3D12_ROOT_SIGNATURE_FLAG_DENY_MESH_SHADER_ROOT_ACCESS;
-    root_sig_desc.Desc_1_0.pParameters = params;
-    root_sig_desc.Desc_1_0.NumParameters = kTotalParamCount;
-
-    ID3DBlob *root_sig_blob_ptr = nullptr, *error_blob_ptr = nullptr;
-    RETURN_IF_FAILED(D3D12SerializeVersionedRootSignature(&root_sig_desc, &root_sig_blob_ptr, &error_blob_ptr));
-    CComPtr<ID3DBlob> root_sig_blob{root_sig_blob_ptr};
-    CComPtr<ID3DBlob> error_blob{error_blob_ptr};
-
-    RETURN_IF_FAILED(device_->GetDevice()->CreateRootSignature(0, root_sig_blob->GetBufferPointer(),
-        root_sig_blob->GetBufferSize(), IID_PPV_ARGS(&root_signature_)));
-    SetObjectName(root_signature_, L"Main root signature");
-
-    return kOK;
-}
-
-DeviceObject::DeviceObject(Device* device, const wchar_t* name)
-    : device_{device}
-{
-    assert(device != nullptr);
-
-    if ((device->desc_.flags & kDeviceFlagDisableNameStoring) == 0 && !IsStringEmpty(name))
-        name_ = name;
-}
-
-DeviceObject::DeviceObject(Device* device, const DeviceDesc& desc)
-    : device_{device}
-{
-    assert(device != nullptr);
-
-    // This constructor is inteded for Device class constructor, where device->desc_ is not yet initialized.
-    if ((desc.flags & kDeviceFlagDisableNameStoring) == 0 && !IsStringEmpty(desc.name))
-        name_ = desc.name;
-}
-
-Result DescriptorHeap::Init(const wchar_t* device_name)
-{
-    assert(device_);
-    constexpr D3D12_DESCRIPTOR_HEAP_TYPE heap_type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    ID3D12Device* const d3d12_dev = device_->GetDevice();
-
-    handle_increment_size_ = d3d12_dev->GetDescriptorHandleIncrementSize(heap_type);
-
-    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-    desc.Type = heap_type;
-    desc.NumDescriptors = kMaxDescriptorCount;
-    if(shader_visible_)
-        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    RETURN_IF_FAILED(d3d12_dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptor_heap_)));
-
-    SetObjectName(descriptor_heap_, device_name, shader_visible_
-        ? L"Descriptor heap (shader-visible)"
-        : L"Descriptor heap (shader-invisible)");
-
-    if(shader_visible_)
-        gpu_handle_ = descriptor_heap_->GetGPUDescriptorHandleForHeapStart();
-    cpu_handle_ = descriptor_heap_->GetCPUDescriptorHandleForHeapStart();
-
-    return kOK;
-}
-
-D3D12_GPU_DESCRIPTOR_HANDLE DescriptorHeap::GetGpuHandleForDescriptor(uint32_t index) const noexcept
-{
-    assert(shader_visible_);
-    assert(index < kMaxDescriptorCount);
-
-    D3D12_GPU_DESCRIPTOR_HANDLE h = gpu_handle_;
-    h.ptr += index * handle_increment_size_;
-    return h;
-}
-
-D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::GetCpuHandleForDescriptor(uint32_t index) const noexcept
-{
-    assert(index < kMaxDescriptorCount);
-
-    D3D12_CPU_DESCRIPTOR_HANDLE h = cpu_handle_;
-    h.ptr += index * handle_increment_size_;
-    return h;
-}
-
-HRESULT DescriptorHeap::AllocateDynamic(uint32_t& out_index)
-{
-    if(next_dynamic_descriptor_index_ == kMaxDescriptorCount)
-        return kErrorTooManyObjects;
-    out_index = next_dynamic_descriptor_index_++;
-    return kOK;
-}
-
-void DescriptorHeap::ClearDynamic()
-{
-    next_dynamic_descriptor_index_ = kStaticDescriptorCount;
-}
-
-Result Device::DispatchComputeShader(Shader& shader, const UintVec3& group_count)
-{
-    ASSERT_OR_RETURN(shader.GetDevice() == this, "Shader does not belong to this Device.");
-
-    if(group_count.x == 0 || group_count.y == 0 || group_count.z == 0)
-        return kFalse;
-
-    ASSERT_OR_RETURN(group_count.x <= UINT16_MAX
-        && group_count.y <= UINT16_MAX
-        && group_count.z <= UINT16_MAX, "Dispatch group count cannot exceed 65535 in any dimension.");
-
-    RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
-
-    ID3D12DescriptorHeap* const desc_heap = shader_visible_descriptor_heap_.GetDescriptorHeap();
-    command_list_->SetDescriptorHeaps(1, &desc_heap);
-
-    command_list_->SetPipelineState(shader.GetPipelineState());
-
-    command_list_->SetComputeRootSignature(main_root_signature_->GetRootSignature());
-
-    RETURN_IF_FAILED(UpdateRootArguments());
-
-    command_list_->Dispatch(group_count.x, group_count.y, group_count.z);
-
-    return kOK;
-}
-
-void BindingState::ResetDescriptors()
-{
-    for(uint32_t slot = 0; slot < MainRootSignature::kMaxCBVCount; ++slot)
-    {
-        cbv_bindings_[slot].descriptor_index = UINT32_MAX;
-    }
-    for(uint32_t slot = 0; slot < MainRootSignature::kMaxSRVCount; ++slot)
-    {
-        srv_bindings_[slot].descriptor_index = UINT32_MAX;
-    }
-    for(uint32_t slot = 0; slot < MainRootSignature::kMaxUAVCount; ++slot)
-    {
-        uav_bindings_[slot].descriptor_index = UINT32_MAX;
-    }
-}
-
-bool BindingState::IsBufferBound(Buffer* buf)
-{
-    for(uint32_t slot = 0; slot < MainRootSignature::kMaxCBVCount; ++slot)
-    {
-        if(cbv_bindings_[slot].buffer == buf)
-            return true;
-    }
-    for(uint32_t slot = 0; slot < MainRootSignature::kMaxSRVCount; ++slot)
-    {
-        if(srv_bindings_[slot].buffer == buf)
-            return true;
-    }
-    for(uint32_t slot = 0; slot < MainRootSignature::kMaxUAVCount; ++slot)
-    {
-        if(uav_bindings_[slot].buffer == buf)
-            return true;
-    }
-    return false;
-}
-
-Result ShaderCompiler::Init()
-{
-    module_ = LoadLibrary(L"f:/Libraries/_Microsoft/dxc_2025_07_14/bin/x64/dxcompiler.dll");
-    if (module_ == NULL)
-        return MakeResultFromLastError();
-
-    create_instance_proc_ = DxcCreateInstanceProc(GetProcAddress(module_, "DxcCreateInstance"));
-    if(create_instance_proc_ == nullptr)
-        return kErrorFail;
-
-    RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcUtils, IID_PPV_ARGS(&utils_)));
-    RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler_)));
-
-    RETURN_IF_FAILED(utils_->CreateDefaultIncludeHandler(&include_handler_));
-
-    return kOK;
-}
-
+#if 0
 StaticShader::StaticShader()
 {
     Singleton& singleton = Singleton::GetInstance();
@@ -1878,3 +2259,310 @@ Result StaticBufferFromFile::Init()
     return dev->CreateBufferFromFile(desc_, initial_data_file_path_, buffer_);
 }
 #endif
+
+////////////////////////////////////////////////////////////////////////////////
+// public class Buffer
+
+Buffer::Buffer()
+{
+    // Empty.
+}
+
+Buffer::~Buffer()
+{
+    delete impl_;
+}
+
+Device* Buffer::GetDevice() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetDevice();
+}
+
+const wchar_t* Buffer::GetName() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetName();
+}
+
+size_t Buffer::GetSize() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->desc_.size;
+}
+
+uint32_t Buffer::GetFlags() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->desc_.flags;
+}
+
+Format Buffer::GetElementFormat() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->desc_.element_format;
+}
+
+size_t Buffer::GetStructureSize() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->desc_.structure_size;
+}
+
+size_t Buffer::GetElementSize() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetElementSize();
+}
+
+ID3D12Resource* Buffer::GetResource() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetResource();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class Shader
+
+Shader::Shader()
+{
+    // Empty.
+}
+
+Shader::~Shader()
+{
+    delete impl_;
+}
+
+Device* Shader::GetDevice() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetDevice();
+}
+
+const wchar_t* Shader::GetName() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetName();
+}
+
+void* Shader::GetNativePipelineState() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetPipelineState();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class Device
+
+Device::Device()
+{
+    // Empty.
+}
+
+Device::~Device()
+{
+    delete impl_;
+}
+
+Environment* Device::GetEnvironment() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetEnvironment();
+}
+
+void* Device::GetNativeDevice() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetDevice();
+}
+
+Result Device::CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer)
+{
+    assert(impl_ != nullptr);
+    return impl_->CreateBuffer(desc, out_buffer);
+}
+
+Result Device::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan initial_data,
+    Buffer*& out_buffer)
+{
+    assert(impl_ != nullptr);
+    return impl_->CreateBufferFromMemory(desc, initial_data, out_buffer);
+}
+
+Result Device::CreateBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path,
+    Buffer*& out_buffer)
+{
+    assert(impl_ != nullptr);
+    return impl_->CreateBufferFromFile(desc, initial_data_file_path, out_buffer);
+}
+
+Result Device::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan bytecode,
+    Shader*& out_shader)
+{
+    assert(impl_ != nullptr);
+    return impl_->CreateShaderFromMemory(desc, bytecode, out_shader);
+}
+
+Result Device::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
+    Shader*& out_shader)
+{
+    assert(impl_ != nullptr);
+    return impl_->CreateShaderFromFile(desc, bytecode_file_path, out_shader);
+}
+
+Result Device::MapBuffer(Buffer& buf, Range byte_range, BufferFlags cpu_usage_flag, void*& out_data_ptr,
+    uint32_t command_flags)
+{
+    assert(impl_ != nullptr && buf.GetImpl() != nullptr);
+    return impl_->MapBuffer(*buf.GetImpl(), byte_range, cpu_usage_flag, out_data_ptr, command_flags);
+}
+
+void Device::UnmapBuffer(Buffer& buf)
+{
+    assert(impl_ != nullptr && buf.GetImpl() != nullptr);
+    impl_->UnmapBuffer(*buf.GetImpl());
+}
+
+Result Device::ReadBufferToMemory(Buffer& src_buf, Range src_byte_range, void* dst_memory,
+    uint32_t command_flags)
+{
+    assert(impl_ != nullptr && src_buf.GetImpl() != nullptr);
+    return impl_->ReadBufferToMemory(*src_buf.GetImpl(), src_byte_range, dst_memory, command_flags);
+}
+
+Result Device::WriteMemoryToBuffer(ConstDataSpan src_data, Buffer& dst_buf, size_t dst_byte_offset,
+    uint32_t command_flags)
+{
+    assert(impl_ != nullptr && dst_buf.GetImpl() != nullptr);
+    return impl_->WriteMemoryToBuffer(src_data, *dst_buf.GetImpl(), dst_byte_offset, command_flags);
+}
+
+Result Device::SubmitPendingCommands()
+{
+    assert(impl_ != nullptr);
+    return impl_->SubmitPendingCommands();
+}
+
+Result Device::WaitForGPU(uint32_t timeout_milliseconds)
+{
+    assert(impl_ != nullptr);
+    return impl_->WaitForGPU(timeout_milliseconds);
+}
+
+Result Device::CopyBuffer(Buffer& src_buf, Buffer& dst_buf)
+{
+    assert(impl_ != nullptr && src_buf.GetImpl() != nullptr && dst_buf.GetImpl() != nullptr);
+    return impl_->CopyBuffer(*src_buf.GetImpl(), *dst_buf.GetImpl());
+}
+
+Result Device::CopyBufferRegion(Buffer& src_buf, Range src_byte_range, Buffer& dst_buf, size_t dst_byte_offset)
+{
+    assert(impl_ != nullptr && src_buf.GetImpl() != nullptr && dst_buf.GetImpl() != nullptr);
+    return impl_->CopyBufferRegion(*src_buf.GetImpl(), src_byte_range, *dst_buf.GetImpl(), dst_byte_offset);
+}
+
+Result Device::ClearBufferToUintValues(Buffer& buf, const UintVec4& values, Range element_range)
+{
+    assert(impl_ != nullptr && buf.GetImpl() != nullptr);
+    return impl_->ClearBufferToUintValues(*buf.GetImpl(), values, element_range);
+}
+
+Result Device::ClearBufferToFloatValues(Buffer& buf, const FloatVec4& values, Range element_range)
+{
+    assert(impl_ != nullptr && buf.GetImpl() != nullptr);
+    return impl_->ClearBufferToFloatValues(*buf.GetImpl(), values, element_range);
+}
+
+void Device::ResetAllBindings()
+{
+    assert(impl_ != nullptr);
+    impl_->ResetAllBindings();
+}
+
+Result Device::BindConstantBuffer(uint32_t b_slot, Buffer* buf, Range byte_range)
+{
+    assert(impl_ != nullptr);
+    assert(buf == nullptr || buf->GetImpl() != nullptr);
+    return impl_->BindConstantBuffer(b_slot, buf ? buf->GetImpl() : nullptr, byte_range);
+}
+
+Result Device::BindBuffer(uint32_t t_slot, Buffer* buf, Range byte_range)
+{
+    assert(impl_ != nullptr);
+    assert(buf == nullptr || buf->GetImpl() != nullptr);
+    return impl_->BindBuffer(t_slot, buf ? buf->GetImpl() : nullptr, byte_range);
+}
+
+Result Device::BindRWBuffer(uint32_t u_slot, Buffer* buf, Range byte_range)
+{
+    assert(impl_ != nullptr);
+    assert(buf == nullptr || buf->GetImpl() != nullptr);
+    return impl_->BindRWBuffer(u_slot, buf ? buf->GetImpl() : nullptr, byte_range);
+}
+
+Result Device::DispatchComputeShader(Shader& shader, const UintVec3& group_count)
+{
+    assert(impl_ != nullptr && shader.GetImpl() != nullptr);
+    return impl_->DispatchComputeShader(*shader.GetImpl(), group_count);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class Environment
+
+Environment::Environment()
+{
+    // Empty.
+}
+
+Environment::~Environment()
+{
+    delete impl_;
+}
+
+void* Environment::GetNativeDXGIFactory6() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetDXGIFactory6();
+}
+
+void* Environment::GetNativeAdapter1() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetAdapter1();
+}
+
+void* Environment::GetNativeSDKConfiguration1() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetSDKConfiguration1();
+}
+
+void* Environment::GetNativeDeviceFactory() const noexcept
+{
+    assert(impl_ != nullptr);
+    return impl_->GetDeviceFactory();
+}
+
+Result Environment::CreateDevice(const DeviceDesc& desc, Device*& out_device)
+{
+    assert(impl_ != nullptr);
+    return impl_->CreateDevice(desc, out_device);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public global functions
+
+Result CreateEnvironment(Environment*& out_env)
+{
+    out_env = nullptr;
+
+    auto env = std::make_unique<Environment>();
+    env->impl_ = new EnvironmentImpl{env.get()};
+    RETURN_IF_FAILED(env->impl_->Init());
+
+    out_env = env.release();
+    return kOK;
+}
+
+} // namespace jd3d12

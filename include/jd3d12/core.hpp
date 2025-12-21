@@ -1,8 +1,19 @@
 #pragma once
 
 #include <jd3d12/utils.hpp>
+#include <jd3d12/types.hpp>
 
-#if 0
+namespace jd3d12
+{
+
+class BufferImpl;
+class ShaderImpl;
+class DeviceImpl;
+class EnvironmentImpl;
+
+class Device;
+class Environment;
+
 enum BufferFlags : uint32_t
 {
     kBufferUsageMaskCpu                = 0x00000007u,
@@ -24,30 +35,6 @@ enum BufferFlags : uint32_t
     kBufferFlagByteAddress = 0x00000400u,
 };
 
-class Device;
-class Environment;
-struct DeviceDesc;
-
-class DeviceObject
-{
-public:
-    DeviceObject() = default;
-    DeviceObject(Device* device, const wchar_t* name);
-    DeviceObject(Device* device, const DeviceDesc& desc);
-    virtual ~DeviceObject() = 0 { }
-
-    Device* GetDevice() const noexcept { return device_; }
-    const wchar_t* GetName() const { return !name_.empty() ? name_.c_str() : nullptr; }
-
-    static void SetDeviceObjectName(uint32_t device_flags, ID3D12Object* obj, const wchar_t* name,
-        const wchar_t* suffix = nullptr);
-    void SetObjectName(ID3D12Object* obj, const wchar_t* name, const wchar_t* suffix = nullptr);
-
-protected:
-    Device* const device_ = nullptr;
-    std::wstring name_;
-};
-
 struct BufferDesc
 {
     const wchar_t* name = nullptr;
@@ -57,22 +44,19 @@ struct BufferDesc
     size_t structure_size = 0;
 };
 
-enum class BufferStrategy
-{
-    kNone, kUpload, kGpuUpload, kDefault, kReadback
-};
-
-class Buffer : public DeviceObject
+class Buffer
 {
 public:
-    Buffer() = default;
-    ~Buffer() override;
-
-    bool IsValid() const noexcept { return GetDevice() != nullptr; }
-    size_t GetSize() const noexcept { return desc_.size; }
-    uint32_t GetFlags() const noexcept { return desc_.flags; }
-    Format GetElementFormat() const noexcept { return desc_.element_format; }
-    size_t GetStructureSize() const noexcept { return desc_.structure_size; }
+    Buffer();
+    ~Buffer();
+    bool IsValid() const noexcept { return impl_ != nullptr; }
+    BufferImpl* GetImpl() const noexcept { return impl_; }
+    Device* GetDevice() const noexcept;
+    const wchar_t* GetName() const noexcept;
+    size_t GetSize() const noexcept;
+    uint32_t GetFlags() const noexcept;
+    Format GetElementFormat() const noexcept;
+    size_t GetStructureSize() const noexcept;
     /** \brief Returns the size of a single buffer element in bytes.
 
     - For typed buffer, returns FormatDesc::bits_per_element / 8 of its BufferDesc::element_format.
@@ -81,24 +65,11 @@ public:
     - If the element size is unknown, returns 0.
     */
     size_t GetElementSize() const noexcept;
-    ID3D12Resource* GetResource() const noexcept { return resource_; }
+    ID3D12Resource* GetResource() const noexcept;
 
 private:
-    BufferDesc desc_;
-    BufferStrategy strategy_ = BufferStrategy::kNone;
-    CComPtr<ID3D12Resource> resource_;
-    void* persistently_mapped_ptr_ = nullptr;
-    bool is_user_mapped_ = false;
-
-    Result InitParameters(size_t initial_data_size);
-    static D3D12_RESOURCE_STATES GetInitialState(D3D12_HEAP_TYPE heap_type);
-
-    Buffer(Device* device, const BufferDesc& desc);
-    Result Init(ConstDataSpan initial_data);
-    Result WriteInitialData(ConstDataSpan initial_data);
-
-    friend class StaticBuffer;
-    friend class Device;
+    BufferImpl* impl_ = nullptr;
+    friend class DeviceImpl;
     JD3D12_NO_COPY_CLASS(Buffer)
 };
 
@@ -107,22 +78,21 @@ struct ShaderDesc
     const wchar_t* name = nullptr;
 };
 
-class Shader : public DeviceObject
+class Shader
 {
 public:
-    Shader() = default;
+    Shader();
     ~Shader();
-    bool IsValid() const noexcept { return pipeline_state_ != nullptr; }
-    ID3D12PipelineState* GetPipelineState() const noexcept { return pipeline_state_; }
+    bool IsValid() const noexcept { return impl_ != nullptr; }
+    ShaderImpl* GetImpl() const noexcept { return impl_; }
+    Device* GetDevice() const noexcept;
+    const wchar_t* GetName() const noexcept;
+    /// Returns ID3D12PipelineState* object.
+    void* GetNativePipelineState() const noexcept;
 
 private:
-    ShaderDesc desc_ = {};
-    CComPtr<ID3D12PipelineState> pipeline_state_;
-
-    Shader(Device* device, const ShaderDesc& desc);
-    Result Init(ConstDataSpan bytecode);
-
-    friend class Device;
+    ShaderImpl* impl_ = nullptr;
+    friend class DeviceImpl;
     JD3D12_NO_COPY_CLASS(Shader)
 };
 
@@ -139,118 +109,20 @@ struct DeviceDesc
     uint32_t flags = 0; // Use DeviceFlags.
 };
 
-class DescriptorHeap : public DeviceObject
-{
-public:
-    static constexpr uint32_t kMaxDescriptorCount = 65536;
-    static constexpr uint32_t kStaticDescriptorCount = 3;
-
-    DescriptorHeap(Device* device, const wchar_t* device_name, bool shader_visible)
-        : DeviceObject{device, device_name}
-        , shader_visible_{shader_visible}
-    {
-    }
-    Result Init(const wchar_t* device_name);
-
-    ID3D12DescriptorHeap* GetDescriptorHeap() const noexcept { return descriptor_heap_; }
-    D3D12_GPU_DESCRIPTOR_HANDLE GetGpuHandleBase() const noexcept { assert(shader_visible_); return gpu_handle_; }
-    D3D12_CPU_DESCRIPTOR_HANDLE GetCpuHandleBase() const noexcept { return cpu_handle_; }
-    D3D12_GPU_DESCRIPTOR_HANDLE GetGpuHandleForDescriptor(uint32_t index) const noexcept;
-    D3D12_CPU_DESCRIPTOR_HANDLE GetCpuHandleForDescriptor(uint32_t index) const noexcept;
-
-    void ClearDynamic();
-    HRESULT AllocateDynamic(uint32_t& out_index);
-
-private:
-    const bool shader_visible_ = false;
-    uint32_t handle_increment_size_ = 0;
-    CComPtr<ID3D12DescriptorHeap> descriptor_heap_;
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle_ = {};
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle_ = {};
-    uint32_t next_dynamic_descriptor_index_ = kStaticDescriptorCount;
-};
-
-enum ResourceUsageFlags
-{
-    kResourceUsageFlagRead = 0x1,
-    kResourceUsageFlagWrite = 0x2,
-};
-
-struct ResourceUsage
-{
-    uint32_t flags = 0; // Use ResourceUsageFlags.
-    D3D12_RESOURCE_STATES last_state = D3D12_RESOURCE_STATE_COMMON;
-};
-
-class ResourceUsageMap
-{
-public:
-    std::map<Buffer*, ResourceUsage> map_;
-
-    bool IsUsed(Buffer* buf, uint32_t usage_flags) const;
-};
-
-class MainRootSignature : public DeviceObject
-{
-public:
-    static constexpr uint32_t kMaxCBVCount = 16;
-    static constexpr uint32_t kMaxSRVCount = 16;
-    static constexpr uint32_t kMaxUAVCount = 8;
-    static constexpr uint32_t kTotalParamCount = kMaxCBVCount + kMaxSRVCount + kMaxUAVCount;
-
-    static uint32_t GetRootParamIndexForCBV(uint32_t cbv_index)
-    {
-        return cbv_index;
-    }
-    static uint32_t GetRootParamIndexForSRV(uint32_t srv_index)
-    {
-        return kMaxCBVCount + srv_index;
-    }
-    static uint32_t GetRootParamIndexForUAV(uint32_t uav_index)
-    {
-        return kMaxCBVCount + kMaxSRVCount + uav_index;
-    }
-
-    MainRootSignature(Device* device) : DeviceObject{device, nullptr} {}
-    ID3D12RootSignature* GetRootSignature() const noexcept { return root_signature_; }
-    Result Init();
-
-private:
-    CComPtr<ID3D12RootSignature> root_signature_;
-};
-
-struct Binding
-{
-    Buffer* buffer = nullptr;
-    Range byte_range = kFullRange;
-    uint32_t descriptor_index = UINT32_MAX;
-};
-
-struct BindingState
-{
-    Binding cbv_bindings_[MainRootSignature::kMaxCBVCount];
-    Binding srv_bindings_[MainRootSignature::kMaxSRVCount];
-    Binding uav_bindings_[MainRootSignature::kMaxUAVCount];
-
-    void ResetDescriptors();
-    bool IsBufferBound(Buffer* buf);
-};
-
 enum CommandFlags : uint32_t
 {
     kCommandFlagDontWait = 0x1,
 };
 
-class Device : public DeviceObject
+class Device
 {
 public:
     Device();
     ~Device();
-
-    bool IsValid() const noexcept { return device_ != nullptr; }
-    Environment* GetEnvironment() const noexcept { return env_; }
-    ID3D12Device* GetDevice() const noexcept { return device_; }
-    D3D12_FEATURE_DATA_D3D12_OPTIONS16 GetOptions16() const noexcept { return options16_; }
+    bool IsValid() const noexcept { return impl_ != nullptr; }
+    DeviceImpl* GetImpl() const noexcept { return impl_; }
+    Environment* GetEnvironment() const noexcept;
+    void* GetNativeDevice() const noexcept;
 
     Result CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer);
     /** \brief Creates a buffer and initializes it with data from memory.
@@ -359,70 +231,12 @@ public:
     Result DispatchComputeShader(Shader& shader, const UintVec3& group_count);
 
 private:
-    enum class CommandListState { kNone, kRecording, kExecuting };
-
-    Environment* env_ = nullptr;
-    DeviceDesc desc_{};
-    CComPtr<ID3D12Device> device_;
-    D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16_{};
-
-    CComPtr<ID3D12CommandQueue> command_queue_;
-    CComPtr<ID3D12CommandAllocator> command_allocator_;
-    CComPtr<ID3D12GraphicsCommandList2> command_list_;
-    CommandListState command_list_state_ = CommandListState::kRecording;
-    CComPtr<ID3D12Fence> fence_;
-    std::unique_ptr<HANDLE, CloseHandleDeleter> fence_event_;
-    uint64_t submitted_fence_value_ = 0;
-    // Used in CommandListState::kRecording and kExecuting.
-    ResourceUsageMap resource_usage_map_;
-    std::set<Shader*> shader_usage_set_;
-    DescriptorHeap shader_visible_descriptor_heap_;
-    DescriptorHeap shader_invisible_descriptor_heap_;
-    BindingState binding_state_;
-
-    std::unique_ptr<MainRootSignature> main_root_signature_;
-
-    std::atomic<size_t> buffer_count_{ 0 };
-    std::atomic<size_t> shader_count_{ 0 };
-
-    // Static descriptors in descriptor_heap_.
-    uint32_t null_cbv_index_ = 0;
-    uint32_t null_srv_index_ = 1;
-    uint32_t null_uav_index_ = 2;
-
-    Device(Environment* env, const DeviceDesc& desc);
-    Result Init();
-
-    // Starts executing recorded commands on the GPU. (kRecording -> kExecuting)
-    Result ExecuteRecordedCommands();
-    // Waits on the CPU until the GPU completes execution. (kExecuting -> kNone)
-    Result WaitForCommandExecution(uint32_t timeout_milliseconds);
-    // Resets command list to the recording state. (kNone -> kRecording)
-    Result ResetCommandListForRecording();
-
-    Result EnsureCommandListState(CommandListState desired_state, uint32_t timeout_milliseconds = kTimeoutInfinite);
-
-    Result WaitForBufferUnused(Buffer* buf);
-    Result WaitForShaderUnused(Shader* shader);
-    Result UseBuffer(Buffer& buf, D3D12_RESOURCE_STATES state);
-    Result UpdateRootArguments();
-    void FreeDescriptor(uint32_t desc_index);
-    Result CreateNullDescriptors();
-    Result CreateStaticShaders();
-    Result CreateStaticBuffers();
-    void DestroyStaticShaders();
-    void DestroyStaticBuffers();
-    Result BeginClearBufferToValues(Buffer& buf, Range element_range,
-        D3D12_GPU_DESCRIPTOR_HANDLE& out_shader_visible_gpu_desc_handle,
-        D3D12_CPU_DESCRIPTOR_HANDLE& out_shader_invisible_cpu_desc_handle);
-
-    friend class Environment;
-    friend class DeviceObject;
-    friend class Buffer;
-    friend class Shader;
+    DeviceImpl* impl_ = nullptr;
+    friend class EnvironmentImpl;
     JD3D12_NO_COPY_CLASS(Device)
 };
 
+#if 0
 /// Abstract base class for #StaticShaderFromMemory, #StaticShaderFromFile.
 class StaticShader
 {
@@ -565,54 +379,32 @@ protected:
 private:
     const wchar_t* initial_data_file_path_ = nullptr;
 };
-
-class ShaderCompiler
-{
-public:
-    ShaderCompiler() = default;
-    ~ShaderCompiler() = default;
-    Result Init();
-    bool IsValid() const noexcept { return compiler_ != nullptr; }
-
-private:
-    HMODULE module_ = nullptr;
-    DxcCreateInstanceProc create_instance_proc_ = nullptr;
-    CComPtr<IDxcUtils> utils_;
-    CComPtr<IDxcCompiler3> compiler_;
-    CComPtr<IDxcIncludeHandler> include_handler_;
-
-    JD3D12_NO_COPY_CLASS(ShaderCompiler)
-};
+#endif
 
 class Environment
 {
 public:
     Environment();
     ~Environment();
-
-    bool IsValid() const noexcept { return dxgi_factory6_ != nullptr; }
-    IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
-    IDXGIAdapter1* GetAdapter() const noexcept { return adapter_; }
-    ID3D12SDKConfiguration1* GetSDKConfiguration1() const noexcept { return sdk_config1_; }
-    ID3D12DeviceFactory* GetDeviceFactory() const noexcept { return device_factory_; }
+    bool IsValid() const noexcept { return impl_ != nullptr; }
+    EnvironmentImpl* GetImpl() const noexcept { return impl_; }
+    /// Returns `IDXGIFactory6*`.
+    void* GetNativeDXGIFactory6() const noexcept;
+    /// Returns `IDXGIAdapter1*`.
+    void* GetNativeAdapter1() const noexcept;
+    /// Returns `ID3D12SDKConfiguration1*`.
+    void* GetNativeSDKConfiguration1() const noexcept;
+    /// Returns `ID3D12DeviceFactory*`.
+    void* GetNativeDeviceFactory() const noexcept;
 
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
 
 private:
-    CComPtr<IDXGIFactory6> dxgi_factory6_;
-    UINT selected_adapter_index_ = UINT32_MAX;
-    CComPtr<IDXGIAdapter1> adapter_;
-    CComPtr<ID3D12SDKConfiguration1> sdk_config1_;
-    CComPtr<ID3D12DeviceFactory> device_factory_;
-    std::atomic<size_t> device_count_{ 0 };
-    ShaderCompiler shader_compiler_;
-
-    Result Init();
-
-    friend Result CreateEnvironment(Environment*&);
-    friend class Device;
+    EnvironmentImpl* impl_ = nullptr;
+    friend Result CreateEnvironment(Environment*& out_env);
     JD3D12_NO_COPY_CLASS(Environment)
 };
 
 Result CreateEnvironment(Environment*& out_env);
-#endif
+
+} // namespace jd3d12
