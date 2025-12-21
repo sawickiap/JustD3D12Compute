@@ -62,7 +62,7 @@ enum class BufferStrategy
 class BufferImpl : public DeviceObject
 {
 public:
-    BufferImpl(Buffer* parent, DeviceImpl* device, const BufferDesc& desc);
+    BufferImpl(Buffer* interface_obj, DeviceImpl* device, const BufferDesc& desc);
     ~BufferImpl() override;
     Result Init(ConstDataSpan initial_data);
 
@@ -74,7 +74,7 @@ public:
     ID3D12Resource* GetResource() const noexcept { return resource_; }
 
 private:
-    Buffer* const parent_;
+    Buffer* const interface_obj_;
     BufferDesc desc_;
     BufferStrategy strategy_ = BufferStrategy::kNone;
     CComPtr<ID3D12Resource> resource_;
@@ -95,14 +95,14 @@ private:
 class ShaderImpl : public DeviceObject
 {
 public:
-    ShaderImpl(Shader* parent, DeviceImpl* device, const ShaderDesc& desc);
+    ShaderImpl(Shader* interface_obj, DeviceImpl* device, const ShaderDesc& desc);
     ~ShaderImpl();
     Result Init(ConstDataSpan bytecode);
 
     ID3D12PipelineState* GetPipelineState() const noexcept { return pipeline_state_; }
 
 private:
-    Shader* const parent_;
+    Shader* const interface_obj_;
     ShaderDesc desc_ = {};
     CComPtr<ID3D12PipelineState> pipeline_state_;
 
@@ -210,11 +210,11 @@ struct BindingState
 class DeviceImpl : public DeviceObject
 {
 public:
-    DeviceImpl(Device* parent, EnvironmentImpl* env, const DeviceDesc& desc);
+    DeviceImpl(Device* interface_obj, EnvironmentImpl* env, const DeviceDesc& desc);
     ~DeviceImpl();
     Result Init();
 
-    Device* GetInterface() const noexcept { return parent_; }
+    Device* GetInterface() const noexcept { return interface_obj_; }
     EnvironmentImpl* GetEnvironment() const noexcept { return env_; }
     ID3D12Device* GetDevice() const noexcept { return device_; }
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 GetOptions16() const noexcept { return options16_; }
@@ -270,7 +270,7 @@ public:
 private:
     enum class CommandListState { kNone, kRecording, kExecuting };
 
-    Device* const parent_;
+    Device* const interface_obj_;
     EnvironmentImpl* const env_;
     DeviceDesc desc_{};
     CComPtr<ID3D12Device> device_;
@@ -352,11 +352,11 @@ private:
 class EnvironmentImpl
 {
 public:
-    EnvironmentImpl(Environment* parent);
+    EnvironmentImpl(Environment* interface_obj);
     ~EnvironmentImpl();
     Result Init();
 
-    Environment* GetInterface() const noexcept { return parent_; }
+    Environment* GetInterface() const noexcept { return interface_obj_; }
     IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
     IDXGIAdapter1* GetAdapter1() const noexcept { return adapter_; }
     ID3D12SDKConfiguration1* GetSDKConfiguration1() const noexcept { return sdk_config1_; }
@@ -365,7 +365,7 @@ public:
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
 
 private:
-    Environment* const parent_;
+    Environment* const interface_obj_;
     CComPtr<IDXGIFactory6> dxgi_factory6_;
     UINT selected_adapter_index_ = UINT32_MAX;
     CComPtr<IDXGIAdapter1> adapter_;
@@ -534,9 +534,9 @@ D3D12_RESOURCE_STATES BufferImpl::GetInitialState(D3D12_HEAP_TYPE heap_type)
     }
 }
 
-BufferImpl::BufferImpl(Buffer* parent, DeviceImpl* device, const BufferDesc& desc)
+BufferImpl::BufferImpl(Buffer* interface_obj, DeviceImpl* device, const BufferDesc& desc)
     : DeviceObject{device, desc.name}
-    , parent_{parent}
+    , interface_obj_{interface_obj}
     , desc_{desc}
 {
     ++GetDevice()->buffer_count_;
@@ -648,9 +648,9 @@ Result BufferImpl::WriteInitialData(ConstDataSpan initial_data)
 ////////////////////////////////////////////////////////////////////////////////
 // class ShaderImpl
 
-ShaderImpl::ShaderImpl(Shader* parent, DeviceImpl* device, const ShaderDesc& desc)
+ShaderImpl::ShaderImpl(Shader* interface_obj, DeviceImpl* device, const ShaderDesc& desc)
     : DeviceObject{device, desc.name}
-    , parent_{parent}
+    , interface_obj_{interface_obj}
     , desc_{desc}
 {
     ++device->shader_count_;
@@ -867,9 +867,9 @@ bool BindingState::IsBufferBound(BufferImpl* buf)
 ////////////////////////////////////////////////////////////////////////////////
 // class DeviceImpl
 
-DeviceImpl::DeviceImpl(Device* parent, EnvironmentImpl* env, const DeviceDesc& desc)
+DeviceImpl::DeviceImpl(Device* interface_obj, EnvironmentImpl* env, const DeviceDesc& desc)
     : DeviceObject{ this, desc }
-    , parent_{ parent }
+    , interface_obj_{ interface_obj }
     , env_{ env }
     , desc_{ desc }
     , main_root_signature_{ std::make_unique<MainRootSignature>(this) }
@@ -881,7 +881,7 @@ DeviceImpl::DeviceImpl(Device* parent, EnvironmentImpl* env, const DeviceDesc& d
     Singleton& singleton = Singleton::GetInstance();
     if(singleton.dev_count_ == 0)
     {
-        singleton.first_dev_ = parent;
+        singleton.first_dev_ = interface_obj;
         singleton.dev_count_ = 1;
     }
     else
@@ -1994,8 +1994,8 @@ Result ShaderCompiler::Init()
 ////////////////////////////////////////////////////////////////////////////////
 // class EnvironmentImpl
 
-EnvironmentImpl::EnvironmentImpl(Environment* parent)
-    : parent_{parent}
+EnvironmentImpl::EnvironmentImpl(Environment* interface_obj)
+    : interface_obj_{interface_obj}
 {
     Singleton& singleton = Singleton::GetInstance();
     assert(singleton.env_ == nullptr && "Only one Environment instance can be created.");
