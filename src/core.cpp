@@ -1952,6 +1952,19 @@ Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& gro
     if(group_count.x == 0 || group_count.y == 0 || group_count.z == 0)
         return kFalse;
 
+    /*
+    This is the most common bug when calling compute shader dispatch!!!
+    While GPUs are able to quickly run millions of threads, the number of groups is
+    limited to maximum 65535 per dimension. If you need more, use any or all of
+    these methods:
+    - Process multiple elements per thread, using a loop in the shader.
+    - Use more threads per group, using numthreads attribute in HLSL, like:
+      [numthreads(256, 1, 1)].
+      A power of two is a good number, like 32 or 64, but it can be up to 1024.
+    - Use 2D or 3D group_count, e.g. UintVec3(1000, 1000, 1) and flatten the index
+      in the shader code, like:
+      uint group_index = GroupID.y * 1000 + GroupID.x;
+    */
     ASSERT_OR_RETURN(group_count.x <= UINT16_MAX
         && group_count.y <= UINT16_MAX
         && group_count.z <= UINT16_MAX, "Dispatch group count cannot exceed 65535 in any dimension.");
