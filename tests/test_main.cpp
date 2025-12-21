@@ -31,7 +31,7 @@ StaticShaderFromFile byte_address_shader{
 StaticShaderFromFile copy_squared_typed_shader{
     ShaderDesc{ L"copy_squared_typed" }, L"CopySquaredTyped.dxil" };
 
-constexpr size_t kMainBufSize = 100 * kMegabyte;
+constexpr size_t kMainBufSize = 10 * kMegabyte;
 
 std::array<float, 8> main_src_data = { 1, 2, 3, 4, 5, 6, 7, 8 };
 StaticBufferFromMemory main_upload_buffer{
@@ -241,8 +241,8 @@ TEST_CASE("Typed buffer", "[gpu][buffer]")
     REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
 
-    //g_dev->SubmitPendingCommands();
-    //g_dev->WaitForGPU();
+    REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
+    REQUIRE(Succeeded(g_dev->WaitForGPU()));
 
     std::array<float, 8> dst_data;
     REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0, dst_data.size() * sizeof(float)},
@@ -275,12 +275,12 @@ TEST_CASE("Structured buffer", "[gpu][buffer]")
     REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
 
-    //g_dev->SubmitPendingCommands();
-    //g_dev->WaitForGPU();
+    REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
+    REQUIRE(Succeeded(g_dev->WaitForGPU()));
 
     std::array<float, 8> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0, dst_data.size() * sizeof(float)},
-        dst_data.data())));
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0,
+        dst_data.size() * sizeof(float)}, dst_data.data())));
 
     for(size_t i = 0; i < dst_data.size(); ++i)
     {
@@ -300,7 +300,8 @@ TEST_CASE("ByteAddress buffer", "[gpu][buffer]")
     std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
 
     REQUIRE(main_upload_buffer.GetBuffer() != nullptr);
-    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(), Range{0, kMainBufSize}, *default_buffer, 0)));
+    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(),
+        Range{0, kMainBufSize}, *default_buffer, 0)));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(2, default_buffer.get())));
     REQUIRE(byte_address_shader.GetShader() != nullptr);
     REQUIRE(Succeeded(g_dev->DispatchComputeShader(*byte_address_shader.GetShader(), { 8, 1, 1 })));
@@ -308,12 +309,12 @@ TEST_CASE("ByteAddress buffer", "[gpu][buffer]")
     REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
 
-    //g_dev->SubmitPendingCommands();
-    //g_dev->WaitForGPU();
+    REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
+    REQUIRE(Succeeded(g_dev->WaitForGPU()));
 
     std::array<float, 8> dst_data;
-    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0, dst_data.size() * sizeof(float)},
-        dst_data.data())));
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(),
+        Range{0, dst_data.size() * sizeof(float)}, dst_data.data())));
 
     for(size_t i = 0; i < dst_data.size(); ++i)
     {

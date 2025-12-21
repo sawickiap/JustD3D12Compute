@@ -13,6 +13,9 @@ target_compile_features(jd3d12_tests PRIVATE cxx_std_17)
 
 if (MSVC)
    target_compile_options(jd3d12_tests PRIVATE /W4 /wd4189 /wd4702 /wd4100)
+   set_target_properties(jd3d12_tests PROPERTIES
+      VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:jd3d12_tests>"
+   )
 else()
    target_compile_options(jd3d12_tests PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -26,11 +29,6 @@ add_custom_command(TARGET jd3d12_tests POST_BUILD
            $<TARGET_FILE_DIR:jd3d12_tests>
    COMMENT "Copying test DXIL shaders to test runtime directory."
 )
-if (MSVC)
-   set_target_properties(jd3d12_tests PROPERTIES
-      VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:jd3d12_tests>"
-   )
-endif()
 
 include(CTest)
 include(Catch)
