@@ -108,7 +108,6 @@ int main(int argc, char** argv)
 ////////////////////////////////////////////////////////////////////////////////
 // Tests
 
-/*
 TEST_CASE("DivideRoundingUp scalar", "[types]")
 {
     const uint32_t count = 100;
@@ -238,7 +237,7 @@ TEST_CASE("Format description", "[utils][format]")
     CHECK(desc->active_component_count == 2);
     CHECK(desc->is_simple == 1);
 }
-*/
+
 TEST_CASE("Typed buffer", "[gpu][buffer]")
 {
     BufferDesc default_buf_desc{};
