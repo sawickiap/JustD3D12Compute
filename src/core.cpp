@@ -437,12 +437,10 @@ void DeviceObject::SetObjectName(ID3D12Object* obj, const wchar_t* name, const w
 Result BufferImpl::InitParameters(size_t initial_data_size)
 {
     ASSERT_OR_RETURN((desc_.flags &
-        (kBufferUsageMaskCpu | kBufferUsageMaskCopy | kBufferUsageMaskGpu)) != 0,
+        (kBufferUsageMaskCpu | kBufferUsageMaskCopy | kBufferUsageMaskShader)) != 0,
         "At least one usage flag must be specified - a buffer with no usage flags makes no sense.");
     ASSERT_OR_RETURN(CountBitsSet(desc_.flags & kBufferUsageMaskCpu) <= 1,
         "kBufferUsageFlagCpu* are mutually exclusive - you can specify at most 1.");
-    ASSERT_OR_RETURN(CountBitsSet(desc_.flags & (kBufferUsageFlagGpuReadOnly | kBufferUsageFlagGpuReadWrite)) <= 1,
-        "kBufferUsageFlagGpuReadOnly, kBufferUsageFlagGpuReadWrite are mutually exclusive - you can specify at most 1.");
 
     const bool is_typed = (desc_.flags & kBufferFlagTyped) != 0;
     const bool is_structured = (desc_.flags & kBufferFlagStructured) != 0;
@@ -486,12 +484,12 @@ Result BufferImpl::InitParameters(size_t initial_data_size)
     }
 
     // Choose strategy.
-    if((desc_.flags & kBufferUsageFlagGpuReadWrite) != 0)
+    if((desc_.flags & kBufferUsageFlagShaderRWResource) != 0)
     {
         strategy_ = BufferStrategy::kDefault;
         // kBufferUsageFlagCpuSequentialWrite is allowed.
         ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuRead) == 0,
-            "kBufferUsageFlagCpuRead cannot be used with kBufferUsageFlagGpuReadWrite.");
+            "kBufferUsageFlagCpuRead cannot be used with kBufferUsageFlagShaderRWResource.");
     }
     else if((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0)
     {
@@ -499,8 +497,6 @@ Result BufferImpl::InitParameters(size_t initial_data_size)
 
         ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopyDst) == 0,
             "BufferUsageFlagCopyDst cannot be used with kBufferUsageFlagCpuSequentialWrite.");
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagGpuReadWrite) == 0,
-            "kBufferUsageFlagGpuReadWrite cannot be used with kBufferUsageFlagCpuSequentialWrite.");
     }
     else if((desc_.flags & kBufferUsageFlagCpuRead) != 0)
     {
@@ -508,8 +504,8 @@ Result BufferImpl::InitParameters(size_t initial_data_size)
 
         ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopySrc) == 0,
             "kBufferUsageFlagCopySrc cannot be used with kBufferUsageFlagCpuRead.");
-        ASSERT_OR_RETURN((desc_.flags & kBufferUsageMaskGpu) == 0,
-            "kBufferUsageFlagGpu* cannot be used with kBufferUsageFlagCpuRead.");
+        ASSERT_OR_RETURN((desc_.flags & kBufferUsageMaskShader) == 0,
+            "kBufferUsageFlagShader* cannot be used with kBufferUsageFlagCpuRead.");
     }
     else
     {
@@ -588,7 +584,7 @@ Result BufferImpl::Init(ConstDataSpan initial_data)
     assert(strategy_ != BufferStrategy::kNone);
 
     D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
-    if((desc_.flags & kBufferUsageFlagGpuReadWrite) != 0)
+    if((desc_.flags & kBufferUsageFlagShaderRWResource) != 0)
     {
         flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     }
@@ -1196,8 +1192,8 @@ Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& valu
 {
     ASSERT_OR_RETURN(buf.GetDevice() == this,
         "ClearBufferToUintValues: Buffer does not belong to this Device.");
-    ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
-        "ClearBufferToUintValues: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
+    ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagShaderRWResource) != 0,
+        "ClearBufferToUintValues: Buffer was not created with kBufferUsageFlagShaderRWResource.");
     ASSERT_OR_RETURN((buf.desc_.flags & (kBufferFlagTyped | kBufferFlagByteAddress)) != 0,
         "ClearBufferToUintValues: Buffer was not created with kBufferFlagTyped or kBufferFlagByteAddress.");
 
@@ -1224,8 +1220,8 @@ Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& va
 {
     ASSERT_OR_RETURN(buf.GetDevice() == this,
         "ClearBufferToFloatValues: Buffer does not belong to this Device.");
-    ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
-        "ClearBufferToFloatValues: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
+    ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagShaderRWResource) != 0,
+        "ClearBufferToFloatValues: Buffer was not created with kBufferUsageFlagShaderRWResource.");
     ASSERT_OR_RETURN((buf.desc_.flags & kBufferFlagTyped) != 0,
         "ClearBufferToFloatValues: Buffer was not created with kBufferFlagTyped.");
 
@@ -1295,11 +1291,9 @@ Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range by
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
     ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
-    ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagGpuConstant) != 0,
-        "BindConstantBuffer: Buffer was not created with kBufferUsageFlagGpuConstant.");
+    ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagShaderConstant) != 0,
+        "BindConstantBuffer: Buffer was not created with kBufferUsageFlagShaderConstant.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
-    ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagGpuConstant) != 0,
-        "Buffer usage does not match binding usage.");
     ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), "Buffer region out of bounds.");
 
     binding->buffer = buf;
@@ -1341,8 +1335,8 @@ Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
     ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
-    ASSERT_OR_RETURN((buf->desc_.flags & (kBufferUsageFlagGpuReadOnly | kBufferUsageFlagGpuReadWrite)) != 0,
-        "BindBuffer: Buffer was not created with kBufferUsageFlagGpuReadOnly or kBufferUsageFlagGpuReadWrite.");
+    ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagShaderResource) != 0,
+        "BindBuffer: Buffer was not created with kBufferUsageFlagGpuShaderResource.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
     ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), "Buffer region out of bounds.");
 
@@ -1384,8 +1378,8 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
     ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
         "Size must be greater than zero and a multiple of element size.");
     ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
-    ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagGpuReadWrite) != 0,
-        "BindRWBuffer: Buffer was not created with kBufferUsageFlagGpuReadWrite.");
+    ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagShaderRWResource) != 0,
+        "BindRWBuffer: Buffer was not created with kBufferUsageFlagShaderRWResource.");
     ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
     ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), "Buffer region out of bounds.");
 

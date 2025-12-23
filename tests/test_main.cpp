@@ -242,7 +242,7 @@ TEST_CASE("Typed buffer", "[gpu][buffer]")
 {
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
-    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferUsageFlagGpuReadWrite
+    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferUsageFlagShaderRWResource
         | kBufferFlagTyped;
     default_buf_desc.size = kMainBufSize;
     default_buf_desc.element_format = Format::kR32_Float;
@@ -277,7 +277,7 @@ TEST_CASE("Structured buffer", "[gpu][buffer]")
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
     default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferFlagStructured
-        | kBufferUsageFlagGpuReadWrite;
+        | kBufferUsageFlagShaderRWResource;
     default_buf_desc.size = kMainBufSize;
     default_buf_desc.structure_size = sizeof(float);
     Buffer* buffer_ptr = nullptr;
@@ -309,8 +309,12 @@ TEST_CASE("ByteAddress buffer", "[gpu][buffer]")
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
     default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferFlagByteAddress
-        | kBufferUsageFlagGpuReadWrite;
+        | kBufferUsageFlagShaderRWResource;
     default_buf_desc.size = kMainBufSize;
+
+    // Additionally test adding this flag next to ShaderRWResource.
+    default_buf_desc.flags |= kBufferUsageFlagShaderResource;
+
     Buffer* buffer_ptr = nullptr;
     REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
@@ -339,7 +343,7 @@ TEST_CASE("ClearBufferToUintValues", "[gpu][buffer][clear]")
 {
     BufferDesc typed_buf_desc{};
     typed_buf_desc.name = L"My buffer Typed";
-    typed_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagGpuReadWrite | kBufferFlagTyped;
+    typed_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagShaderRWResource | kBufferFlagTyped;
     typed_buf_desc.size = 256;
     typed_buf_desc.element_format = Format::kR16G16B16A16_Snorm;
     Buffer* buffer_ptr = nullptr;
@@ -361,7 +365,7 @@ TEST_CASE("ClearBufferToUintValues", "[gpu][buffer][clear]")
 
     BufferDesc byte_address_buf_desc{};
     byte_address_buf_desc.name = L"My buffer Byte address";
-    byte_address_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagGpuReadWrite | kBufferFlagByteAddress;
+    byte_address_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagShaderRWResource | kBufferFlagByteAddress;
     byte_address_buf_desc.size = 256;
     REQUIRE(Succeeded(g_dev->CreateBuffer(byte_address_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> byte_address_buffer{ buffer_ptr };
@@ -386,7 +390,7 @@ TEST_CASE("ClearBufferToFloatValues", "[gpu][buffer][clear]")
 {
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
-    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagGpuReadWrite | kBufferFlagTyped;
+    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagShaderRWResource | kBufferFlagTyped;
     default_buf_desc.size = 256;
     default_buf_desc.element_format = Format::kR16G16B16A16_Float;
     Buffer* buffer_ptr = nullptr;
@@ -419,7 +423,7 @@ TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer]")
     upload_buf_desc.name = L"My buffer UPLOAD";
     upload_buf_desc.flags = kBufferUsageFlagCpuSequentialWrite
         | kBufferUsageFlagCopySrc
-        | kBufferUsageFlagGpuReadOnly
+        | kBufferUsageFlagShaderResource
         | kBufferFlagTyped;
     upload_buf_desc.size = kBufSize;
     upload_buf_desc.element_format = Format::kR32_Float;
@@ -432,7 +436,7 @@ TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer]")
     default_buf_desc.name = L"My buffer DEFAULT";
     default_buf_desc.flags = kBufferUsageFlagCopyDst
         | kBufferUsageFlagCopySrc
-        | kBufferUsageFlagGpuReadWrite
+        | kBufferUsageFlagShaderRWResource
         | kBufferFlagTyped;
     default_buf_desc.size = kBufSize;
     default_buf_desc.element_format = Format::kR32_Float;
@@ -538,7 +542,7 @@ TEST_CASE("ClearBufferToUintValues with a sub-range of elements", "[gpu][buffer]
 
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
-    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagGpuReadWrite | kBufferFlagTyped;
+    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagShaderRWResource | kBufferFlagTyped;
     default_buf_desc.size = kElementCount * sizeof(uint32_t);
     default_buf_desc.element_format = Format::kR8G8B8A8_Uint;
     Buffer* buffer_ptr = nullptr;
@@ -633,7 +637,7 @@ TEST_CASE("Constant buffer", "[gpu][buffer]")
     // Intentionally creating is as none of Typed, Structured or ByteAddress buffer.
     BufferDesc const_buf_desc = {
         L"My constant buffer", // name
-        kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagGpuConstant | kBufferUsageFlagCopySrc, // flags
+        kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagShaderConstant | kBufferUsageFlagCopySrc, // flags
         kConstBufSize // size
     };
     Buffer* buffer_ptr = nullptr;
@@ -643,7 +647,7 @@ TEST_CASE("Constant buffer", "[gpu][buffer]")
 
     BufferDesc struct_buf_desc = {
         L"My structured buffer", // name
-        kBufferUsageFlagGpuReadWrite | kBufferFlagStructured | kBufferUsageFlagCopySrc, // flags
+        kBufferUsageFlagShaderRWResource | kBufferFlagStructured | kBufferUsageFlagCopySrc, // flags
         kConstBufSize, // size
         Format::kUnknown, // element_format
         sizeof(MyConstants) // structure_size
@@ -676,7 +680,7 @@ TEST_CASE("WriteMemoryToBuffer with a GPU read-write buffer", "[gpu][buffer]")
     using ElementType = uint32_t;
     BufferDesc buf_desc = {
         L"My GPU buffer", // name
-        kBufferUsageFlagGpuReadWrite | kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagCopySrc, // flags
+        kBufferUsageFlagShaderRWResource | kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagCopySrc, // flags
         kElementCount * sizeof(ElementType), // size
     };
     Buffer* buffer_ptr = nullptr;

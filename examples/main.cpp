@@ -65,7 +65,7 @@ int main(int argc, char** argv)
     {
         BufferDesc default_buf_desc{};
         default_buf_desc.name = L"My buffer DEFAULT";
-        default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferUsageFlagGpuReadWrite
+        default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferUsageFlagShaderRWResource
             | kBufferFlagTyped;
         default_buf_desc.size = kMainBufSize;
         default_buf_desc.element_format = Format::kR32_Float;
@@ -99,7 +99,7 @@ int main(int argc, char** argv)
         BufferDesc default_buf_desc{};
         default_buf_desc.name = L"My buffer DEFAULT";
         default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferFlagStructured
-            | kBufferUsageFlagGpuReadWrite;
+            | kBufferUsageFlagShaderRWResource;
         default_buf_desc.size = kMainBufSize;
         default_buf_desc.structure_size = sizeof(float);
         Buffer* buffer_ptr = nullptr;
@@ -132,7 +132,7 @@ int main(int argc, char** argv)
         BufferDesc default_buf_desc{};
         default_buf_desc.name = L"My buffer DEFAULT";
         default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferFlagByteAddress
-            | kBufferUsageFlagGpuReadWrite;
+            | kBufferUsageFlagShaderRWResource;
         default_buf_desc.size = kMainBufSize;
         Buffer* buffer_ptr = nullptr;
         REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));

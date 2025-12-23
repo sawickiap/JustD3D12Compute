@@ -27,10 +27,10 @@ enum BufferFlags : uint32_t
     kBufferUsageFlagCopySrc  = 0x00000008u,
     kBufferUsageFlagCopyDst  = 0x00000010u,
 
-    kBufferUsageMaskGpu          = 0x000000E0u,
-    kBufferUsageFlagGpuConstant  = 0x00000020u,
-    kBufferUsageFlagGpuReadOnly  = 0x00000040u,
-    kBufferUsageFlagGpuReadWrite = 0x00000080u,
+    kBufferUsageMaskShader           = 0x000000E0u,
+    kBufferUsageFlagShaderConstant   = 0x00000020u,
+    kBufferUsageFlagShaderResource   = 0x00000040u,
+    kBufferUsageFlagShaderRWResource = 0x00000080u,
 
     kBufferFlagTyped       = 0x00000100u,
     kBufferFlagStructured  = 0x00000200u,
@@ -187,7 +187,7 @@ public:
 
     /** \brief Fills a buffer with given integer numeric values.
 
-    Buffer must be created with kBufferUsageFlagGpuReadWrite, as well as either kBufferFlagTyped or
+    Buffer must be created with kBufferUsageFlagShaderRWResource, as well as either kBufferFlagTyped or
     kBufferFlagByteAddress.
 
     Only a subset of formats are supported, following these rules:
@@ -207,7 +207,7 @@ public:
     Result ClearBufferToUintValues(Buffer& buf, const UintVec4& values, Range element_range = kFullRange);
     /** \brief Fills a buffer with given floating-point numeric values.
 
-    Buffer must be created with kBufferUsageFlagGpuReadWrite and kBufferFlagTyped.
+    Buffer must be created with kBufferUsageFlagShaderRWResource and kBufferFlagTyped.
 
     Only a subset of formats are supported, following these rules:
 
