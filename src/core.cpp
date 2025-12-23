@@ -928,7 +928,7 @@ Result DeviceImpl::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan 
 {
     out_buffer = nullptr;
 
-    auto buf = std::make_unique<Buffer>();
+    auto buf = std::unique_ptr<Buffer>{new Buffer{}};
     buf->impl_ = new BufferImpl{ buf.get(), this, desc };
     RETURN_IF_FAILED(buf->GetImpl()->Init(initial_data));
 
@@ -957,7 +957,7 @@ Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan 
     ASSERT_OR_RETURN(bytecode.data != nullptr && bytecode.size > 0,
         "Shader bytecode cannot be null or empty.");
 
-    auto shader = std::make_unique<Shader>();
+    auto shader = std::unique_ptr<Shader>{new Shader{}};
     shader->impl_ = new ShaderImpl{ shader.get(), this, desc };
     RETURN_IF_FAILED(shader->GetImpl()->Init(bytecode));
 
@@ -2027,7 +2027,7 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
 {
     out_device = nullptr;
 
-    auto device = std::make_unique<Device>();
+    auto device = std::unique_ptr<Device>{new Device{}};
     device->impl_ = new DeviceImpl(device.get(), this, desc);
     RETURN_IF_FAILED(device->impl_->Init());
 
@@ -2578,7 +2578,7 @@ Result CreateEnvironment(Environment*& out_env)
 {
     out_env = nullptr;
 
-    auto env = std::make_unique<Environment>();
+    auto env = std::unique_ptr<Environment>{new Environment{}};
     env->impl_ = new EnvironmentImpl{env.get()};
     RETURN_IF_FAILED(env->impl_->Init());
 

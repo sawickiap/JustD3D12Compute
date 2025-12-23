@@ -14,6 +14,8 @@ class EnvironmentImpl;
 class Device;
 class Environment;
 
+Result CreateEnvironment(Environment*& out_env);
+
 enum BufferFlags : uint32_t
 {
     kBufferUsageMaskCpu                = 0x00000007u,
@@ -47,9 +49,7 @@ struct BufferDesc
 class Buffer
 {
 public:
-    Buffer();
     ~Buffer();
-    bool IsValid() const noexcept { return impl_ != nullptr; }
     BufferImpl* GetImpl() const noexcept { return impl_; }
     Device* GetDevice() const noexcept;
     const wchar_t* GetName() const noexcept;
@@ -70,6 +70,9 @@ public:
 
 private:
     BufferImpl* impl_ = nullptr;
+
+    Buffer();
+
     friend class DeviceImpl;
     JD3D12_NO_COPY_NO_MOVE_CLASS(Buffer)
 };
@@ -82,9 +85,7 @@ struct ShaderDesc
 class Shader
 {
 public:
-    Shader();
     ~Shader();
-    bool IsValid() const noexcept { return impl_ != nullptr; }
     ShaderImpl* GetImpl() const noexcept { return impl_; }
     Device* GetDevice() const noexcept;
     const wchar_t* GetName() const noexcept;
@@ -93,6 +94,9 @@ public:
 
 private:
     ShaderImpl* impl_ = nullptr;
+
+    Shader();
+
     friend class DeviceImpl;
     JD3D12_NO_COPY_NO_MOVE_CLASS(Shader)
 };
@@ -118,9 +122,7 @@ enum CommandFlags : uint32_t
 class Device
 {
 public:
-    Device();
     ~Device();
-    bool IsValid() const noexcept { return impl_ != nullptr; }
     DeviceImpl* GetImpl() const noexcept { return impl_; }
     Environment* GetEnvironment() const noexcept;
     void* GetNativeDevice() const noexcept;
@@ -233,6 +235,9 @@ public:
 
 private:
     DeviceImpl* impl_ = nullptr;
+
+    Device();
+
     friend class EnvironmentImpl;
     JD3D12_NO_COPY_NO_MOVE_CLASS(Device)
 };
@@ -383,9 +388,7 @@ private:
 class Environment
 {
 public:
-    Environment();
     ~Environment();
-    bool IsValid() const noexcept { return impl_ != nullptr; }
     EnvironmentImpl* GetImpl() const noexcept { return impl_; }
     /// Returns `IDXGIFactory6*`.
     void* GetNativeDXGIFactory6() const noexcept;
@@ -400,10 +403,11 @@ public:
 
 private:
     EnvironmentImpl* impl_ = nullptr;
-    friend Result CreateEnvironment(Environment*& out_env);
+
+    Environment();
+
+    friend Result jd3d12::CreateEnvironment(Environment*&);
     JD3D12_NO_COPY_NO_MOVE_CLASS(Environment)
 };
-
-Result CreateEnvironment(Environment*& out_env);
 
 } // namespace jd3d12
