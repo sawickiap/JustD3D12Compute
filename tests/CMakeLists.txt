@@ -10,6 +10,7 @@ target_link_libraries(jd3d12_tests PRIVATE
 )
 
 target_compile_features(jd3d12_tests PRIVATE cxx_std_17)
+target_compile_definitions(jd3d12_tests PRIVATE UNICODE _UNICODE)
 
 if (MSVC)
    target_compile_options(jd3d12_tests PRIVATE /W4 /wd4189 /wd4702 /wd4100)

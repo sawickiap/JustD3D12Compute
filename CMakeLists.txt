@@ -81,7 +81,7 @@ target_include_directories(jd3d12 PRIVATE
    "${JD3D12_DX12_AGILITY_SDK_INCLUDE_DIR}"
 )
 target_compile_features(jd3d12 PUBLIC cxx_std_17)
-target_compile_definitions(jd3d12 PUBLIC UNICODE _UNICODE)
+target_compile_definitions(jd3d12 PRIVATE UNICODE _UNICODE)
 target_precompile_headers(jd3d12 PRIVATE src/precompiled_header.hpp)
 if (MSVC)
    target_compile_options(jd3d12 PRIVATE /W4 /wd4189 /wd4702 /wd4100)
