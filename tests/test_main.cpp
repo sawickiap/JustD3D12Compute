@@ -345,7 +345,7 @@ TEST_CASE("ClearBufferToUintValues", "[gpu][buffer][clear]")
     typed_buf_desc.name = L"My buffer Typed";
     typed_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagShaderRWResource | kBufferFlagTyped;
     typed_buf_desc.size = 256;
-    typed_buf_desc.element_format = Format::kR16G16B16A16_Snorm;
+    typed_buf_desc.element_format = Format::kR16G16B16A16_Sint;
     Buffer* buffer_ptr = nullptr;
     REQUIRE(Succeeded(g_dev->CreateBuffer(typed_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> typed_buffer{ buffer_ptr };
