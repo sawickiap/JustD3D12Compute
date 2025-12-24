@@ -2039,6 +2039,8 @@ Result EnvironmentImpl::Init(const EnvironmentDesc& desc)
 {
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc.d3d12_dll_path),
         "EnvironmentDesc::d3d12_dll_path cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc.dxc_dll_path),
+        "EnvironmentDesc::dxc_dll_path cannot be null or empty.");
 
     JD3D12_RETURN_IF_FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgi_factory6_)));
 
