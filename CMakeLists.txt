@@ -41,6 +41,7 @@ message(STATUS "Using DirectX 12 Agility SDK from \"${JD3D12_DX12_AGILITY_SDK_PA
 
 if (JD3D12_BUILD_TESTS)
    include(FetchContent)
+   message(STATUS "Fetching Catch2 library...")
    FetchContent_Declare(
       Catch2
       GIT_REPOSITORY https://github.com/catchorg/Catch2.git
