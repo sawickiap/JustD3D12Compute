@@ -32,5 +32,3 @@
 #include <cstdio>
 #include <cstring>
 #include <cstddef>
-
-#define CHECK_HR(expr) do { HRESULT hr__ = (expr); if(hr__ != S_OK) __debugbreak(); } while(false)

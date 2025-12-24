@@ -611,7 +611,7 @@ Result BufferImpl::Init(ConstDataSpan initial_data)
     }
     CD3DX12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES{heap_type};
     const D3D12_RESOURCE_STATES initial_state = GetInitialState(heap_type);
-    CHECK_HR(GetD3d12Device()->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE,
+    RETURN_IF_FAILED(GetD3d12Device()->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE,
         &resource_desc, initial_state, nullptr, IID_PPV_ARGS(&resource_)));
 
     SetObjectName(resource_, desc_.name);
@@ -1461,7 +1461,7 @@ Result DeviceImpl::WaitForCommandExecution(uint32_t timeout_milliseconds)
 
     if(fence_->GetCompletedValue() < submitted_fence_value_)
     {
-        CHECK_HR(fence_->SetEventOnCompletion(submitted_fence_value_, fence_event_.get()));
+        RETURN_IF_FAILED(fence_->SetEventOnCompletion(submitted_fence_value_, fence_event_.get()));
         const DWORD wait_result = WaitForSingleObject(fence_event_.get(), timeout_milliseconds);
         switch(wait_result)
         {
