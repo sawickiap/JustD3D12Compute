@@ -156,7 +156,7 @@ struct ResourceUsage
 class ResourceUsageMap
 {
 public:
-    std::map<BufferImpl*, ResourceUsage> map_;
+    std::unordered_map<BufferImpl*, ResourceUsage> map_;
 
     bool IsUsed(BufferImpl* buf, uint32_t usage_flags) const;
 };
@@ -287,7 +287,7 @@ private:
     uint64_t submitted_fence_value_ = 0;
     // Used in CommandListState::kRecording and kExecuting.
     ResourceUsageMap resource_usage_map_;
-    std::set<ShaderImpl*> shader_usage_set_;
+    std::unordered_set<ShaderImpl*> shader_usage_set_;
     DescriptorHeap shader_visible_descriptor_heap_;
     DescriptorHeap shader_invisible_descriptor_heap_;
     BindingState binding_state_;
@@ -1984,7 +1984,7 @@ Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& gro
 
 Result ShaderCompiler::Init()
 {
-    module_ = LoadLibrary(L"f:/Libraries/_Microsoft/dxc_2025_07_14/bin/x64/dxcompiler.dll");
+    module_ = LoadLibrary(L"c:/Libraries/_Microsoft/dxc_2025_07_14/bin/x64/dxcompiler.dll");
     if (module_ == NULL)
         return MakeResultFromLastError();
 

@@ -11,14 +11,14 @@
 #include <Windows.h>
 #include <atlbase.h>
 
-#include "f:\Libraries\_Microsoft\dxc_2025_07_14\inc\dxcapi.h"
-#include "f:\Libraries\_Microsoft\dxc_2025_07_14\inc\d3d12shader.h"
+#include "c:\Libraries\_Microsoft\dxc_2025_07_14\inc\dxcapi.h"
+#include "c:\Libraries\_Microsoft\dxc_2025_07_14\inc\d3d12shader.h"
 
 #include <array>
 #include <vector>
 #include <string>
-#include <map>
-#include <set>
+#include <unordered_set>
+#include <unordered_map>
 #include <algorithm>
 #include <memory>
 #include <atomic>
