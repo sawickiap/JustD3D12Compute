@@ -25,7 +25,7 @@
 
     Define it as empty for maximum performance.
 
-    Default implementation performs #JD3D12_ASSERT and, in case of failure, logs the message (TODO) calls
+    Default implementation performs #JD3D12_ASSERT and, in case of failure, logs the message (TODO) and calls
     `return kErrorInvalidArgument`.
     */
     #define JD3D12_ASSERT_OR_RETURN(expr, message) \
