@@ -54,7 +54,8 @@ int main(int argc, char** argv)
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    assert(Succeeded(CreateEnvironment(g_env)));
+    EnvironmentDesc env_desc{};
+    assert(Succeeded(CreateEnvironment(env_desc, g_env)));
     env.reset(g_env);
 
     DeviceDesc device_desc;
@@ -91,7 +92,7 @@ int main(int argc, char** argv)
 
         for(size_t i = 0; i < dst_data.size(); ++i)
         {
-            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i]);
+            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
         }
     }
 
@@ -124,7 +125,7 @@ int main(int argc, char** argv)
 
         for(size_t i = 0; i < dst_data.size(); ++i)
         {
-            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i]);
+            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
         }
     }
 
@@ -157,7 +158,7 @@ int main(int argc, char** argv)
 
         for(size_t i = 0; i < dst_data.size(); ++i)
         {
-            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i]);
+            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
         }
     }
 }
