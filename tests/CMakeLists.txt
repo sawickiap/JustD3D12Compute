@@ -30,7 +30,15 @@ add_custom_command(TARGET jd3d12_tests POST_BUILD
            $<TARGET_FILE_DIR:jd3d12_tests>
    COMMENT "Copying test DXIL shaders to test runtime directory."
 )
-
+add_custom_command(TARGET jd3d12_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:jd3d12_tests>/D3D12
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${JD3D12_DX12_AGILITY_SDK_PATH}/build/native/bin/x64/D3D12Core.dll"
+        "${JD3D12_DX12_AGILITY_SDK_PATH}/build/native/bin/x64/d3d12SDKLayers.dll"
+        $<TARGET_FILE_DIR:jd3d12_tests>/D3D12
+    COMMENT "Copying Direct3D 12 Agility SDK runtime DLLs."
+)
 include(CTest)
 include(Catch)
 catch_discover_tests(jd3d12_tests)

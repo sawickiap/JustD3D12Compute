@@ -4,11 +4,6 @@
 namespace jd3d12
 {
 
-//extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = D3D12_SDK_VERSION; }
-//extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
-static const UINT D3D12SDKVersion = D3D12_SDK_VERSION;
-static const char* D3D12SDKPath = ".\\D3D12\\";
-
 ////////////////////////////////////////////////////////////////////////////////
 // Type definitions
 
@@ -354,9 +349,9 @@ private:
 class EnvironmentImpl
 {
 public:
-    EnvironmentImpl(Environment* interface_obj);
+    EnvironmentImpl(Environment* interface_obj, const EnvironmentDesc& desc);
     ~EnvironmentImpl();
-    Result Init();
+    Result Init(const EnvironmentDesc& desc);
 
     Environment* GetInterface() const noexcept { return interface_obj_; }
     IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
@@ -2003,7 +1998,7 @@ Result ShaderCompiler::Init()
 ////////////////////////////////////////////////////////////////////////////////
 // class EnvironmentImpl
 
-EnvironmentImpl::EnvironmentImpl(Environment* interface_obj)
+EnvironmentImpl::EnvironmentImpl(Environment* interface_obj, const EnvironmentDesc& desc)
     : interface_obj_{interface_obj}
 {
     Singleton& singleton = Singleton::GetInstance();
@@ -2029,8 +2024,11 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
     return kOK;
 }
 
-Result EnvironmentImpl::Init()
+Result EnvironmentImpl::Init(const EnvironmentDesc& desc)
 {
+    ASSERT_OR_RETURN(!IsStringEmpty(desc.d3d12_dll_path),
+        "EnvironmentDesc::d3d12_dll_path cannot be null or empty.");
+
     RETURN_IF_FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgi_factory6_)));
 
     for(UINT adapter_index = 0; ; ++adapter_index)
@@ -2053,7 +2051,7 @@ Result EnvironmentImpl::Init()
 
     RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
 
-    RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(D3D12_SDK_VERSION, D3D12SDKPath,
+    RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(D3D12_SDK_VERSION, desc.d3d12_dll_path,
         IID_PPV_ARGS(&device_factory_)));
 
     RETURN_IF_FAILED(shader_compiler_.Init());
@@ -2568,13 +2566,13 @@ Result Environment::CreateDevice(const DeviceDesc& desc, Device*& out_device)
 ////////////////////////////////////////////////////////////////////////////////
 // Public global functions
 
-Result CreateEnvironment(Environment*& out_env)
+Result CreateEnvironment(const EnvironmentDesc& desc, Environment*& out_env)
 {
     out_env = nullptr;
 
     auto env = std::unique_ptr<Environment>{new Environment{}};
-    env->impl_ = new EnvironmentImpl{env.get()};
-    RETURN_IF_FAILED(env->impl_->Init());
+    env->impl_ = new EnvironmentImpl{env.get(), desc};
+    RETURN_IF_FAILED(env->impl_->Init(desc));
 
     out_env = env.release();
     return kOK;

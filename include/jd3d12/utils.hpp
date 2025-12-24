@@ -18,6 +18,7 @@ namespace jd3d12
         if(!ok__) return kErrorInvalidArgument; \
     } while(false)
 
+inline bool IsStringEmpty(const char* s) { return s == nullptr || s[0] == '\0'; }
 inline bool IsStringEmpty(const wchar_t* s) { return s == nullptr || s[0] == L'\0'; }
 
 // Compatible with HRESULT.

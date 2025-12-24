@@ -14,8 +14,6 @@ class EnvironmentImpl;
 class Device;
 class Environment;
 
-Result CreateEnvironment(Environment*& out_env);
-
 enum BufferFlags : uint32_t
 {
     kBufferUsageMaskCpu                = 0x00000007u,
@@ -385,6 +383,20 @@ private:
     const wchar_t* initial_data_file_path_ = nullptr;
 };
 
+struct EnvironmentDesc
+{
+    /** \brief Path to a directory, relative to the program executable (NOT the current working directory),
+    where .dll files from DirectX 12 Agility SDK will be placed.
+
+    You must ensure at least `D3D12Core.dll` is copied from the Agility SDK to this location as part
+    of your building process.
+
+    TODO `d3d12SDKLayers.dll` as well if you enable the Debug Layer?
+    TODO what about `D3D12StateObjectCompiler.dll`?
+    */
+    const char* d3d12_dll_path = ".\\D3D12\\";
+};
+
 class Environment
 {
 public:
@@ -406,8 +418,10 @@ private:
 
     Environment();
 
-    friend Result jd3d12::CreateEnvironment(Environment*&);
+    friend Result CreateEnvironment(const EnvironmentDesc& desc, Environment*&);
     JD3D12_NO_COPY_NO_MOVE_CLASS(Environment)
 };
+
+Result CreateEnvironment(const EnvironmentDesc& desc, Environment*& out_env);
 
 } // namespace jd3d12

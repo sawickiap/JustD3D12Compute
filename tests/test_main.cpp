@@ -72,7 +72,8 @@ int main(int argc, char** argv)
     {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-        CHECK_OUTSIDE_TESTS(Succeeded(CreateEnvironment(g_env)));
+        EnvironmentDesc env_desc{};
+        CHECK_OUTSIDE_TESTS(Succeeded(CreateEnvironment(env_desc, g_env)));
         env.reset(g_env);
 
         DeviceDesc device_desc;
