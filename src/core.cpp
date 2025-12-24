@@ -2051,7 +2051,9 @@ Result EnvironmentImpl::Init(const EnvironmentDesc& desc)
 
     RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
 
-    RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(D3D12_SDK_VERSION, desc.d3d12_dll_path,
+    uint32_t sdk_version = desc.is_d3d12_agility_sdk_preview
+        ? D3D12_PREVIEW_SDK_VERSION : D3D12_SDK_VERSION;
+    RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(sdk_version, desc.d3d12_dll_path,
         IID_PPV_ARGS(&device_factory_)));
 
     RETURN_IF_FAILED(shader_compiler_.Init());

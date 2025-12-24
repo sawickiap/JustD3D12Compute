@@ -395,6 +395,12 @@ struct EnvironmentDesc
     TODO what about `D3D12StateObjectCompiler.dll`?
     */
     const char* d3d12_dll_path = ".\\D3D12\\";
+    /** \brief Set to true if you are using a preview version of DirectX 12 Agility SDK.
+
+    This controls whether the library uses `D3D12_SDK_VERSION` or `D3D12_PREVIEW_SDK_VERSION` when
+    initializing D3D12.
+    */
+    bool is_d3d12_agility_sdk_preview = false;
 };
 
 class Environment
