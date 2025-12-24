@@ -333,7 +333,7 @@ class ShaderCompiler
 public:
     ShaderCompiler() = default;
     ~ShaderCompiler() = default;
-    Result Init();
+    Result Init(const EnvironmentDesc& env_desc);
     bool IsValid() const noexcept { return compiler_ != nullptr; }
 
 private:
@@ -1977,9 +1977,11 @@ Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& gro
 ////////////////////////////////////////////////////////////////////////////////
 // class ShaderCompiler
 
-Result ShaderCompiler::Init()
+Result ShaderCompiler::Init(const EnvironmentDesc& env_desc)
 {
-    module_ = LoadLibrary(L"c:/Libraries/_Microsoft/dxc_2025_07_14/bin/x64/dxcompiler.dll");
+    std::filesystem::path compiler_path =
+        std::filesystem::path(env_desc.dxc_dll_path) / L"dxcompiler.dll";
+    module_ = LoadLibrary(compiler_path.c_str());
     if (module_ == NULL)
         return MakeResultFromLastError();
 
@@ -2056,7 +2058,7 @@ Result EnvironmentImpl::Init(const EnvironmentDesc& desc)
     RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(sdk_version, desc.d3d12_dll_path,
         IID_PPV_ARGS(&device_factory_)));
 
-    RETURN_IF_FAILED(shader_compiler_.Init());
+    RETURN_IF_FAILED(shader_compiler_.Init(desc));
 
     return kOK;
 }

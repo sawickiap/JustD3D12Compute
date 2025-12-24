@@ -10,21 +10,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if (MSVC)
-   add_compile_options(/permissive- /Zc:__cplusplus)
-endif()
-
 option(JD3D12_BUILD_EXAMPLES "Build example applications" OFF)
 option(JD3D12_BUILD_TESTS "Build unit tests" OFF)
 
 set(JD3D12_DX12_AGILITY_SDK_PATH "" CACHE STRING
-   "Path to the root directory of the DirectX 12 Agility SDK (e.g. \"F:/Libraries/microsoft.direct3d.d3d12.1.618.3\")"
+   "Path to the root directory of the DirectX 12 Agility SDK (e.g. \"C:/Libraries/microsoft.direct3d.d3d12.1.618.3\")"
 )
 if (JD3D12_DX12_AGILITY_SDK_PATH STREQUAL "")
    message(FATAL_ERROR
       "JD3D12_DX12_AGILITY_SDK_PATH is not set."
       " Please set it to the root directory of the DirectX 12 Agility SDK, e.g.:"
-      " -DJD3D12_DX12_AGILITY_SDK_PATH=F:/Libraries/microsoft.direct3d.d3d12.1.618.3"
+      " -DJD3D12_DX12_AGILITY_SDK_PATH=C:/Libraries/microsoft.direct3d.d3d12.1.618.3"
    )
 endif()
 set(JD3D12_DX12_AGILITY_SDK_INCLUDE_DIR "${JD3D12_DX12_AGILITY_SDK_PATH}/build/native/include" )
@@ -35,6 +31,25 @@ if (NOT EXISTS "${JD3D12_DX12_AGILITY_SDK_INCLUDE_DIR}/d3d12.h")
    )
 endif()
 message(STATUS "Using DirectX 12 Agility SDK from \"${JD3D12_DX12_AGILITY_SDK_PATH}\".")
+
+set(JD3D12_DXC_PATH "" CACHE STRING
+   "Path to the root directory of the DirectX Shader Compiler (DXC) (e.g. \"C:/Libraries/dxc_2025_07_14\")"
+)
+if (JD3D12_DXC_PATH STREQUAL "")
+   message(FATAL_ERROR
+      "JD3D12_DXC_PATH is not set."
+      " Please set it to the root directory of the DirectX Shader Compiler (DXC), e.g.:"
+      " -DJD3D12_DXC_PATH=C:/Libraries/dxc_2025_07_14"
+   )
+endif()
+set(JD3D12_DXC_INCLUDE_DIR "${JD3D12_DXC_PATH}/inc" )
+if (NOT EXISTS "${JD3D12_DXC_INCLUDE_DIR}/dxcapi.h")
+   message(FATAL_ERROR
+      "Invalid JD3D12_DXC_PATH: \"${JD3D12_DXC_PATH}\"."
+      " Expected file not found: \"inc/dxcapi.h\"."
+   )
+endif()
+message(STATUS "Using DirectX Shader Compiler from \"${JD3D12_DXC_PATH}\".")
 
 # ------------------------------------------------------------------------------
 # Dependencies
@@ -80,12 +95,13 @@ target_include_directories(jd3d12 PUBLIC
 )
 target_include_directories(jd3d12 PRIVATE
    "${JD3D12_DX12_AGILITY_SDK_INCLUDE_DIR}"
+   "${JD3D12_DXC_INCLUDE_DIR}"
 )
 target_compile_features(jd3d12 PUBLIC cxx_std_17)
 target_compile_definitions(jd3d12 PRIVATE UNICODE _UNICODE)
 target_precompile_headers(jd3d12 PRIVATE src/precompiled_header.hpp)
 if (MSVC)
-   target_compile_options(jd3d12 PRIVATE /W4 /wd4189 /wd4702 /wd4100)
+   target_compile_options(jd3d12 PRIVATE /W4 /wd4189 /wd4702 /wd4100 /permissive- /Zc:__cplusplus)
 else()
    target_compile_options(jd3d12 PRIVATE -Wall -Wextra -Wpedantic)
 endif()

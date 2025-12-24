@@ -80,7 +80,7 @@ int main(int argc, char** argv)
         device_desc.name = L"My device";
         CHECK_OUTSIDE_TESTS(Succeeded(env->CreateDevice(device_desc, g_dev)));
         dev.reset(g_dev);
-
+        
         {
             BufferDesc upload_buf_desc{};
             upload_buf_desc.name = L"My buffer UPLOAD";

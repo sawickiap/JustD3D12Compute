@@ -11,8 +11,8 @@
 #include <Windows.h>
 #include <atlbase.h>
 
-#include "c:\Libraries\_Microsoft\dxc_2025_07_14\inc\dxcapi.h"
-#include "c:\Libraries\_Microsoft\dxc_2025_07_14\inc\d3d12shader.h"
+#include <dxcapi.h>
+#include <d3d12shader.h>
 
 #include <array>
 #include <vector>
@@ -24,6 +24,7 @@
 #include <atomic>
 #include <iterator>
 #include <type_traits>
+#include <filesystem>
 
 #include <cassert>
 #include <cstdint>

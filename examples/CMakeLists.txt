@@ -22,7 +22,7 @@ add_custom_command(TARGET jd3d12_example POST_BUILD
 )
 
 if (MSVC)
-   target_compile_options(jd3d12_example PRIVATE /W4 /wd4189 /wd4702 /wd4100)
+   target_compile_options(jd3d12_example PRIVATE /W4 /wd4189 /wd4702 /wd4100 /permissive- /Zc:__cplusplus)
    set_target_properties(jd3d12_example PROPERTIES
       VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:jd3d12_example>"
    )

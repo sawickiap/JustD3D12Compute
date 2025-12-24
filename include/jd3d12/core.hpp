@@ -393,8 +393,19 @@ struct EnvironmentDesc
 
     TODO `d3d12SDKLayers.dll` as well if you enable the Debug Layer?
     TODO what about `D3D12StateObjectCompiler.dll`?
+
+    This string is `const char*` not `const wchar_t*` because that's how Microsoft defined function
+    `ID3D12SDKConfiguration1::CreateDeviceFactory` that accepts this path.
     */
     const char* d3d12_dll_path = ".\\D3D12\\";
+    /** \brief Path to a directory (passsed to `LoadLibrary`), where .dll files from DirectX Shader Compiler (DXC)
+    will be placed.
+
+    You must ensure at least `dxcompiler.dll` is copied from DXC to this location as part of your building process.
+
+    TODO `dxil.dll` as well?
+    */
+    const wchar_t* dxc_dll_path = L".\\D3D12\\";
     /** \brief Set to true if you are using a preview version of DirectX 12 Agility SDK.
 
     This controls whether the library uses `D3D12_SDK_VERSION` or `D3D12_PREVIEW_SDK_VERSION` when
