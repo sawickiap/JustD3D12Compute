@@ -5,19 +5,6 @@
 namespace jd3d12
 {
 
-#define RETURN_IF_FAILED(expr) \
-    do { \
-        const HRESULT hr__ = (expr); \
-        if(FAILED(hr__)) return hr__; \
-    } while(false)
-
-#define ASSERT_OR_RETURN(expr, message) \
-    do { \
-        const bool ok__ = (expr); \
-        assert(ok__ && message); \
-        if(!ok__) return kErrorInvalidArgument; \
-    } while(false)
-
 inline bool IsStringEmpty(const char* s) { return s == nullptr || s[0] == '\0'; }
 inline bool IsStringEmpty(const wchar_t* s) { return s == nullptr || s[0] == L'\0'; }
 
@@ -241,6 +228,11 @@ struct FormatDesc
     unsigned is_simple : 1;
 };
 
+/** \brief Returns last error returned by a WinAPI function, converted to correct #Result.
+
+Use it after calling a WinAPI function that declares its error state can be fetched using
+`GetLastError` function.
+*/
 Result MakeResultFromLastError();
 
 /** \brief Returns string representation of the given Result code.
@@ -286,6 +278,7 @@ struct DataSpan
     bool operator!=(const DataSpan& rhs) const noexcept { return data != rhs.data || size != rhs.size; }
     operator ConstDataSpan() const noexcept { return ConstDataSpan{ data, size }; }
 };
+constexpr DataSpan kEmptyDataSpan = { nullptr, 0 };
 
 // If range.end == SIZE_MAX, limits it to real_size.
 inline Range LimitRange(Range range, size_t real_size)

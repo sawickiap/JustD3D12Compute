@@ -75,6 +75,7 @@ target_sources(jd3d12 PUBLIC FILE_SET HEADERS BASE_DIRS include FILES
    "include/jd3d12/types.hpp"
    "include/jd3d12/core.hpp"
    "include/jd3d12/utils.hpp"
+   "include/jd3d12/config.hpp"
 )
 target_sources(jd3d12 PRIVATE
    "src/precompiled_header.cpp"

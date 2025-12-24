@@ -26,7 +26,6 @@
 #include <type_traits>
 #include <filesystem>
 
-#include <cassert>
 #include <cstdint>
 #include <cmath>
 #include <cstdlib>

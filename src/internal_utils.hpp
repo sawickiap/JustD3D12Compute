@@ -1,5 +1,14 @@
 #pragma once
 
+#define JD3D12_RETURN_IF_FAILED(expr) \
+    do { \
+        if(jd3d12::Result res__ = (expr); jd3d12::Failed(res__)) \
+            return res__; \
+    } while(false)
+
+namespace jd3d12
+{
+
 struct CloseHandleDeleter
 {
     typedef HANDLE pointer;
@@ -49,3 +58,5 @@ private:
     T stack_items_[stack_item_max_count];
     std::vector<T> heap_items_;
 };
+
+} // namespace jd3d12

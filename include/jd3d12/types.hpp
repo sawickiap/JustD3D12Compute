@@ -1,5 +1,6 @@
 #pragma once
 
+#include <jd3d12/config.hpp>
 #include <cstdint>
 
 namespace jd3d12

@@ -398,12 +398,14 @@ struct EnvironmentDesc
     `ID3D12SDKConfiguration1::CreateDeviceFactory` that accepts this path.
     */
     const char* d3d12_dll_path = ".\\D3D12\\";
-    /** \brief Path to a directory (passsed to `LoadLibrary`), where .dll files from DirectX Shader Compiler (DXC)
-    will be placed.
+    /** \brief Path to a directory where .dll files from DirectX Shader Compiler (DXC) will be placed.
 
     You must ensure at least `dxcompiler.dll` is copied from DXC to this location as part of your building process.
 
     TODO `dxil.dll` as well?
+
+    The path is passed to `LoadLibrary` function, so if not absolute, it may search in the current
+    working directory first.
     */
     const wchar_t* dxc_dll_path = L".\\D3D12\\";
     /** \brief Set to true if you are using a preview version of DirectX 12 Agility SDK.

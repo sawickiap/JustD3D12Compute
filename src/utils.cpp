@@ -1,4 +1,5 @@
 #include <jd3d12/utils.hpp>
+#include <jd3d12/config.hpp>
 #include "internal_utils.hpp"
 
 namespace jd3d12
@@ -299,7 +300,7 @@ const FormatDesc* GetFormatDesc(Format format)
     if(format <= kLastLinearIndexFormat)
     {
         const size_t index = size_t(format);
-        assert(kFormatDescRecords[index].format == format);
+        JD3D12_ASSERT(kFormatDescRecords[index].format == format);
         return &kFormatDescRecords[index].desc;
     }
 
