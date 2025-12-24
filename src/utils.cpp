@@ -243,7 +243,6 @@ const wchar_t* GetResultString(Result res)
     case kOK: return L"OK";
     case kFalse: return L"False";
     case kNotReady: return L"Not ready";
-    case kTimeout: return L"Timeout";
     case kIncomplete: return L"Incomplete";
     case kErrorTooManyObjects: return L"Too many objects";
     case kErrorUnexpected: return L"Unexpected error";

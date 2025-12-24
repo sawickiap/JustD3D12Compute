@@ -41,12 +41,11 @@ enum ResultCode : int32_t
     /// Used to indicate that no work was done, e.g. after issuing a copy command with size=0.
     kFalse                          = 1,
     /// Returned when #kCommandFlagDontWait was used and the command didn't execute because
-    /// the device wasn't ready.
-    kNotReady                       = int32_t(kCustomResultBase | 0x1),
-    /// Returned when `timeout` was used other than #kTimeoutInfinite and the time has passed
+    /// it would need to wait long time.
+    /// Also returned when timeout was used other than #kTimeoutInfinite and the time has passed
     /// before the operation completed.
-    kTimeout                        = int32_t(kCustomResultBase | 0x2),
-    kIncomplete                     = int32_t(kCustomResultBase | 0x3),
+    kNotReady                       = int32_t(kCustomResultBase | 0x1),
+    kIncomplete                     = int32_t(kCustomResultBase | 0x2),
     kErrorTooManyObjects            = int32_t(kCustomErrorBase | 0x1),
     kErrorUnexpected                = int32_t(0x8000FFFFu),
     kErrorNotImplemented            = int32_t(0x80004001u),

@@ -1048,7 +1048,7 @@ Result DeviceImpl::ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range,
     {
         const uint32_t timeout = (command_flags & kCommandFlagDontWait) ? 0 : kTimeoutInfinite;
         const Result res = EnsureCommandListState(CommandListState::kNone, timeout);
-        if(res == kTimeout)
+        if(res == kNotReady)
             return res;
         JD3D12_RETURN_IF_FAILED(res);
     }
@@ -1473,7 +1473,7 @@ Result DeviceImpl::WaitForCommandExecution(uint32_t timeout_milliseconds)
             // Waiting succeeded, event was is signaled (and got automatically reset to unsignaled).
             break;
         case WAIT_TIMEOUT:
-            return kTimeout;
+            return kNotReady;
         default: // Most likely WAIT_FAILED.
             return MakeResultFromLastError();
         }
