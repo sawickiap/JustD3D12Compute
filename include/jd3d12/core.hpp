@@ -194,14 +194,14 @@ public:
 
     - When using Format::kR32G32B32A32_Uint, values are written as-is, as the type of `values` matches exactly.
     - If you specify `{1, 2, 3, 4}`, but the format has only 2 components, like Format::kR32G32_Uint,
-    only `{1, 2}` is written repeatedly.
+      only `{1, 2}` is written repeatedly.
     - Values `{0, 0, 0, 0}` are allowed with any format.
     - When using non-zero values, the format must be `Uint`, and the values cannot exceed the maximum for
-    that format, like `0xFF` for `8_Uint` or `0xFFFF` for `16_Uint`.
+      that format, like `0xFF` for `8_Uint` or `0xFFFF` for `16_Uint`.
     - `Sint` formats are also supported, but the values must be non-negative. For example, for `16_Sint`,
-    they must be between 0 and `0x7FFF`.
+      they must be between 0 and `0x7FFF`.
     - `32_Float` formats are also supported and the values are directly reinterpreted as 32-bit floats.
-    For example, `0x3F800000u` becomes 1.0.
+      For example, `0x3F800000u` becomes 1.0.
     - Byte address buffers are treated as typed buffers with Format::kR32_Uint, using only the first component.
     */
     Result ClearBufferToUintValues(Buffer& buf, const UintVec4& values, Range element_range = kFullRange);
@@ -213,12 +213,12 @@ public:
 
     - When using Format::kR32G32B32A32_Float, values are written as-is, as the type of `values` matches exactly.
     - If you specify `{1.0, 2.0, 3.0, 4.0}`, but the format has only 2 components, like Format::kR32G32_Float,
-    only `{1.0, 2.0}` is written repeatedly.
+      only `{1.0, 2.0}` is written repeatedly.
     - For half-float formats `16_Float`, values are correctly converted to half-floats.
     - For normalized formats `Unorm`, values are correctly mapped from range `0.0...1.0` to the full range of the
-    integer type. Values beyond `0.0...1.0` are clamped to the minimum/maximum.
+      integer type. Values beyond `0.0...1.0` are clamped to the minimum/maximum.
     - For normalized formats `Snorm`, values are correctly mapped from range `-1.0...1.0` to the correct range of the
-    integer type. Values beyond `-1.0...1.0` are clamped to the minimum/maximum.
+      integer type. Values beyond `-1.0...1.0` are clamped to the minimum/maximum.
     */
     Result ClearBufferToFloatValues(Buffer& buf, const FloatVec4& values, Range element_range = kFullRange);
 
