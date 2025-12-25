@@ -213,6 +213,21 @@ struct BindingState
     bool IsBufferBound(BufferImpl* buf);
 };
 
+class ShaderCompilationResultImpl
+{
+public:
+    ShaderCompilationResultImpl(ShaderCompilationResult* interface_obj, EnvironmentImpl* env);
+    ~ShaderCompilationResultImpl() = default;
+    Result Init();
+    EnvironmentImpl* GetEnvironment() const noexcept { return env_; }
+
+private:
+    ShaderCompilationResult* const interface_obj_ = nullptr;
+    EnvironmentImpl* const env_ = nullptr;
+    CComPtr<IDxcBlob> dxc_blob_;
+    CComPtr<IDxcOperationResult> dxc_operation_result_;
+};
+
 class DeviceImpl : public DeviceObject
 {
 public:
@@ -343,7 +358,9 @@ public:
     ShaderCompiler() = default;
     ~ShaderCompiler() = default;
     Result Init(const EnvironmentDesc& env_desc);
-    bool IsValid() const noexcept { return compiler_ != nullptr; }
+
+    Result BuildArguments(const ShaderCompilationParams& params,
+        const wchar_t* source_name, std::vector<std::wstring>& out_arguments);
 
 private:
     HMODULE module_ = nullptr;
@@ -369,6 +386,9 @@ public:
     ID3D12DeviceFactory* GetDeviceFactory() const noexcept { return device_factory_; }
 
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
+
+    Result CompileShaderFromMemory(const ShaderCompilationParams& params,
+        ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
 
 private:
     Environment* const interface_obj_;
@@ -867,6 +887,20 @@ bool BindingState::IsBufferBound(BufferImpl* buf)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// class ShaderCompilationResultImpl
+
+ShaderCompilationResultImpl::ShaderCompilationResultImpl(ShaderCompilationResult* interface_obj, EnvironmentImpl* env)
+    : interface_obj_{ interface_obj }
+    , env_{ env }
+{
+}
+
+Result ShaderCompilationResultImpl::Init()
+{
+    return kOK;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // class DeviceImpl
 
 DeviceImpl::DeviceImpl(Device* interface_obj, EnvironmentImpl* env, const DeviceDesc& desc)
@@ -1114,14 +1148,14 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
         JD3D12_RETURN_IF_FAILED(UseBuffer(dst_buf, D3D12_RESOURCE_STATE_COPY_DEST));
 
         const uint32_t param_count = uint32_t(src_data.size / 4);
-        StackOrHeapVector<D3D12_WRITEBUFFERIMMEDIATE_PARAMETER, 8> params;
+        StackOrHeapVector<D3D12_WRITEBUFFERIMMEDIATE_PARAMETER, 8> params{param_count};
         {
             const uint32_t* src_data_u32 = reinterpret_cast<const uint32_t*>(src_data.data);
             D3D12_GPU_VIRTUAL_ADDRESS dst_gpu_address = dst_buf.GetResource()->GetGPUVirtualAddress();
             for(uint32_t param_index = 0; param_index < param_count
                 ; ++param_index, ++src_data_u32, dst_gpu_address += sizeof(uint32_t))
             {
-                params.Emplace(D3D12_WRITEBUFFERIMMEDIATE_PARAMETER{ dst_gpu_address, *src_data_u32 });
+                params[param_index] = D3D12_WRITEBUFFERIMMEDIATE_PARAMETER{ dst_gpu_address, *src_data_u32 };
             }
             command_list_->WriteBufferImmediate(param_count, params.GetData(), nullptr);
         }
@@ -2006,6 +2040,79 @@ Result ShaderCompiler::Init(const EnvironmentDesc& env_desc)
     return kOK;
 }
 
+Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
+    const wchar_t* source_name, std::vector<std::wstring>& out_arguments)
+{
+    out_arguments.clear();
+
+    // Source file name (optional).
+    if(!IsStringEmpty(source_name))
+        out_arguments.push_back(source_name);
+
+    // Entry point.
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(params.entry_point),
+        "ShaderCompilationParams::entry_point cannot be null or empty.");
+    out_arguments.push_back(L"-E");
+    out_arguments.push_back(params.entry_point);
+
+    // HLSL version.
+    JD3D12_ASSERT_OR_RETURN(params.hlsl_version == kHlslVersion2016
+        || params.hlsl_version == kHlslVersion2017
+        || params.hlsl_version == kHlslVersion2018
+        || params.hlsl_version == kHlslVersion2021,
+        "Unsupported HLSL version specified in ShaderCompilationParams::hlsl_version.");
+    out_arguments.push_back(L"-HV");
+    out_arguments.push_back(std::to_wstring(params.hlsl_version));
+
+    // Shader model.
+    const uint32_t shader_model_major = params.shader_model >> 8;
+    const uint32_t shader_model_minor = params.shader_model & 0xFF;
+    JD3D12_ASSERT_OR_RETURN(shader_model_major == 6 && shader_model_major <= 9,
+        "Unsupported shader model specified in ShaderCompilationParams::shader_model.");
+    out_arguments.push_back(L"-T");
+    out_arguments.emplace_back(SPrintF(L"cs_%u_%u", shader_model_major, shader_model_minor));
+
+    // Optimization level.
+    JD3D12_ASSERT_OR_RETURN(params.optimization_level == kShaderOptimizationDisabled
+        || params.optimization_level == kShaderOptimizationLevel0
+        || params.optimization_level == kShaderOptimizationLevel1
+        || params.optimization_level == kShaderOptimizationLevel2
+        || params.optimization_level == kShaderOptimizationLevel3,
+        "Invalid optimization level specified in ShaderCompilationParams::optimization_level.");
+    if (params.optimization_level == kShaderOptimizationDisabled)
+        out_arguments.push_back(L"-Od");
+    else if (params.optimization_level != kShaderOptimizationLevel3)
+        out_arguments.push_back(SPrintF(L"-O%d", params.optimization_level));
+
+    // Individual flags.
+    if((params.flags & kShaderCompilationFlagDenormPreserve) != 0)
+        out_arguments.push_back(L"-denorm preserve");
+    if((params.flags & kShaderCompilationFlagDenormFlushToZero) != 0)
+        out_arguments.push_back(L"-denorm ftz");
+    if((params.flags & kShaderCompilationFlagEnable16BitTypes) != 0)
+        out_arguments.push_back(L"-enable-16bit-types");
+    if((params.flags & kShaderCompilationFlagAvoidFlowControl) != 0)
+        out_arguments.push_back(L"-Gfa");
+    if ((params.flags & kShaderCompilationFlagPreferFlowControl) != 0)
+        out_arguments.push_back(L"-Gfp");
+    if((params.flags & kShaderCompilationFlagEnableIeeeStrictness) != 0)
+        out_arguments.push_back(L"-Gis");
+    if((params.flags & kShaderCompilationFlagSuppressWarnings) != 0)
+        out_arguments.push_back(L"-no-warnings");
+    if((params.flags & kShaderCompilationFlagTreatWarningsAsErrors) != 0)
+        out_arguments.push_back(L"-WX");
+    if((params.flags & kShaderCompilationFlagPackMatricesColumnMajor) != 0)
+        out_arguments.push_back(L"-Zpc");
+    if((params.flags & kShaderCompilationFlagPackMatricesRowMajor) != 0)
+        out_arguments.push_back(L"-Zpr");
+    if((params.flags & kShaderCompilationFlagFiniteMathOnly) != 0)
+        out_arguments.push_back(L"-ffinite-math-only");
+    if((params.flags & kShaderCompilationFlagNoFiniteMathOnly) != 0)
+        out_arguments.push_back(L"-fno-finite-math-only");
+
+    return kOK;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // class EnvironmentImpl
 
@@ -2032,6 +2139,28 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
     JD3D12_RETURN_IF_FAILED(device->impl_->Init());
 
     out_device = device.release();
+    return kOK;
+}
+
+Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& params,
+    ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result)
+{
+    out_result = nullptr;
+
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(params.entry_point),
+        "ShaderCompilationParams::entry_point cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(hlsl_source.data != nullptr && hlsl_source.size > 0,
+        "HLSL source data cannot be null or empty.");
+
+    std::vector<std::wstring> args;
+    JD3D12_RETURN_IF_FAILED(shader_compiler_.BuildArguments(params, L"shader_from_memory.hlsl", args));
+
+    StackOrHeapVector<const wchar_t*, 16> arg_pointers;
+
+    auto result = std::unique_ptr<ShaderCompilationResult>{ new ShaderCompilationResult{} };
+    result->impl_ = new ShaderCompilationResultImpl(result.get(), this);
+    JD3D12_RETURN_IF_FAILED(result->impl_->Init());
+    out_result = result.release();
     return kOK;
 }
 
@@ -2164,6 +2293,25 @@ void* Shader::GetNativePipelineState() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
     return impl_->GetPipelineState();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class ShaderCompilationResult
+
+ShaderCompilationResult::ShaderCompilationResult()
+{
+    // Empty.
+}
+
+ShaderCompilationResult::~ShaderCompilationResult()
+{
+    delete impl_;
+}
+
+Environment* ShaderCompilationResult::GetEnvironment() const noexcept
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+    return impl_->GetEnvironment()->GetInterface();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2576,6 +2724,13 @@ Result Environment::CreateDevice(const DeviceDesc& desc, Device*& out_device)
 {
     JD3D12_ASSERT(impl_ != nullptr);
     return impl_->CreateDevice(desc, out_device);
+}
+
+Result Environment::CompileShaderFromMemory(const ShaderCompilationParams& params,
+    ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result)
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+    return impl_->CompileShaderFromMemory(params, hlsl_source, out_result);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

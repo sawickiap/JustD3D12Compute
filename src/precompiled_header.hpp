@@ -40,3 +40,4 @@
 #include <cstdio>
 #include <cstring>
 #include <cstddef>
+#include <cstdarg>

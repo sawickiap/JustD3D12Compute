@@ -32,9 +32,17 @@ template<typename T, size_t stack_item_max_count>
 class StackOrHeapVector
 {
 public:
+    StackOrHeapVector() = default;
+    explicit StackOrHeapVector(size_t initial_count) : count_(initial_count)
+    {
+        if (initial_count > stack_item_max_count)
+            heap_items_.resize(initial_count);
+    }
     size_t GetCount() const noexcept { return count_; }
     const T* GetData() const noexcept { return count_ <= stack_item_max_count ? stack_items_ : heap_items_.data(); }
     T* GetData() noexcept { return count_ <= stack_item_max_count ? stack_items_ : heap_items_.data(); }
+    const T& operator[](size_t index) const noexcept { return GetData()[index]; }
+    T& operator[](size_t index) noexcept { return GetData()[index]; }
 
     void Clear()
     {
@@ -66,5 +74,8 @@ private:
     T stack_items_[stack_item_max_count];
     std::vector<T> heap_items_;
 };
+
+std::wstring SVPrintF(const wchar_t* format, va_list arg_list);
+std::wstring SPrintF(const wchar_t* format, ...);
 
 } // namespace jd3d12

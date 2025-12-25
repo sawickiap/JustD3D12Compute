@@ -16,6 +16,7 @@ namespace jd3d12
 
 class BufferImpl;
 class ShaderImpl;
+class ShaderCompilationResultImpl;
 class DeviceImpl;
 class EnvironmentImpl;
 
@@ -105,6 +106,102 @@ private:
 
     friend class DeviceImpl;
     JD3D12_NO_COPY_NO_MOVE_CLASS(Shader)
+};
+
+enum ShaderCompilationFlags
+{
+    /// Passed to DXC as `-denorm preserve`.
+    kShaderCompilationFlagDenormPreserve = 0x00000001u,
+    /// Passed to DXC as `-denorm ftz`.
+    kShaderCompilationFlagDenormFlushToZero = 0x00000002u,
+    /// Enables 16-bit types support. Passed to DXC as `-enable-16bit-types`.
+    kShaderCompilationFlagEnable16BitTypes = 0x00000004u,
+    /// Passed to DXC as `-Gfa`.
+    kShaderCompilationFlagAvoidFlowControl = 0x00000008u,
+    /// Passed to DXC as `-Gfp`.
+    kShaderCompilationFlagPreferFlowControl = 0x00000010u,
+    /// Force IEEE strictness. Passed to DXC as `-Gis`.
+    kShaderCompilationFlagEnableIeeeStrictness = 0x00000020u,
+    /// Passed to DXC as `-no-warnings`.
+    kShaderCompilationFlagSuppressWarnings = 0x00000040u,
+    /// Passed to DXC as `-WX`.
+    kShaderCompilationFlagTreatWarningsAsErrors = 0x00000080u,
+    /// Pack matrices in column-major order. Passed to DXC as `-Zpc`.
+    /// TODO Which one is the default?
+    kShaderCompilationFlagPackMatricesColumnMajor = 0x00000100u,
+    /// Pack matrices in row-major order. Passed to DXC as `-Zpr`.
+    kShaderCompilationFlagPackMatricesRowMajor = 0x00000200u,
+    /// Allow optimizations for floating-point arithmetic that assume that arguments and results are not NaNs or +-Infs.
+    /// Passed to DXC as `-ffinite-math-only`.
+    /// TODO Which one is the default?
+    kShaderCompilationFlagFiniteMathOnly = 0x00000400u,
+    /// Disallow optimizations for floating-point arithmetic that assume that arguments and results are not NaNs or +-Infs.
+    /// Passed to DXC as `-fno-finite-math-only`.
+    kShaderCompilationFlagNoFiniteMathOnly = 0x00000800u,
+};
+
+enum HlslVersion
+{
+    kHlslVersion2016 = 2016,
+    kHlslVersion2017 = 2017,
+    kHlslVersion2018 = 2018,
+    kHlslVersion2021 = 2021,
+};
+
+enum ShaderOptimizationLevel
+{
+    kShaderOptimizationDisabled = -1,
+    kShaderOptimizationLevel0 = 0,
+    kShaderOptimizationLevel1 = 1,
+    kShaderOptimizationLevel2 = 2,
+    kShaderOptimizationLevel3 = 3,
+};
+
+enum ShaderModel
+{
+    kShaderModel6_0 = 0x0600,
+    kShaderModel6_1 = 0x0601,
+    kShaderModel6_2 = 0x0602,
+    kShaderModel6_3 = 0x0603,
+    kShaderModel6_4 = 0x0604,
+    kShaderModel6_5 = 0x0605,
+    kShaderModel6_6 = 0x0606,
+    kShaderModel6_7 = 0x0607,
+    kShaderModel6_8 = 0x0608,
+    kShaderModel6_9 = 0x0609,
+};
+
+struct ShaderCompilationParams
+{
+    /// Use #ShaderCompilationFlags.
+    uint32_t flags = 0;
+    /** Name of the main function within the HLSL code that should be the entry point of the shader.
+
+    Passed to DXC as `-E` parameter.
+    */
+    const wchar_t* entry_point = nullptr;
+    /** HLSL language version. Use #HlslVersion enum. */
+    uint32_t hlsl_version = kHlslVersion2021;
+    /** Shader model version. Use #ShaderModel enum. */
+    uint32_t shader_model = kShaderModel6_0;
+    /** Optimization level. Use #ShaderOptimizationLevel enum. */
+    int32_t optimization_level = kShaderOptimizationLevel3;
+};
+
+class ShaderCompilationResult
+{
+public:
+    ~ShaderCompilationResult();
+    ShaderCompilationResultImpl* GetImpl() const noexcept { return impl_; }
+    Environment* GetEnvironment() const noexcept;
+
+private:
+    ShaderCompilationResultImpl* impl_ = nullptr;
+
+    ShaderCompilationResult();
+
+    friend class EnvironmentImpl;
+    JD3D12_NO_COPY_NO_MOVE_CLASS(ShaderCompilationResult)
 };
 
 enum DeviceFlags
@@ -439,6 +536,9 @@ public:
     void* GetNativeDeviceFactory() const noexcept;
 
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
+
+    Result CompileShaderFromMemory(const ShaderCompilationParams& params,
+        ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
 
 private:
     EnvironmentImpl* impl_ = nullptr;
