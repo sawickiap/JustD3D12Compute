@@ -291,6 +291,22 @@ public:
         Shader*& out_shader);
     Result CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
         Shader*& out_shader);
+    /** \brief Compiles a compute shader from HLSL source code in memory and creates a #Shader object
+    ready to use on the GPU.
+
+    This function is a convenience helper. For more flexibility and better error reporting,
+    call Environment::CompileShaderFromMemory followed by Device::CreateShaderFromMemory.
+    */
+    Result CompileAndCreateShaderFromMemory(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, ConstDataSpan hlsl_source, Shader*& out_shader);
+    /** \brief Compiles a compute shader from HLSL source code loaded from a file and creates a #Shader object
+    ready to use on the GPU.
+
+    This function is a convenience helper. For more flexibility and better error reporting,
+    call Environment::CompileShaderFromFile followed by Device::CreateShaderFromMemory.
+    */
+    Result CompileAndCreateShaderFromFile(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, const wchar_t* hlsl_source_file_path, Shader*& out_shader);
 
     /** \brief Maps a buffer, returning a CPU pointer for reading or writing its data.
 
@@ -584,7 +600,7 @@ public:
     */
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
 
-    /** \brief Compiles a compute shader from HLSL source code to bytecode.
+    /** \brief Compiles a compute shader from HLSL source code in memory to bytecode.
 
     Note that this function returning #kOK doesn't necessarily mean the compilation succeeded.
     It only means the shader compiler has been invoked and the `out_result` object has been created.
@@ -597,7 +613,7 @@ public:
     */
     Result CompileShaderFromMemory(const ShaderCompilationParams& params,
         ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
-    /** \brief Compiles a compute shader from HLSL source code loaded from a file.
+    /** \brief Compiles a compute shader from HLSL source code loaded from a file to bytecode.
 
     Note that this function returning #kOK doesn't necessarily mean the compilation succeeded.
     It only means the shader compiler has been invoked and the `out_result` object has been created.

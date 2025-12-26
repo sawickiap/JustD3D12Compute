@@ -266,6 +266,10 @@ public:
         Shader*& out_shader);
     Result CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
         Shader*& out_shader);
+    Result CompileAndCreateShaderFromMemory(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, ConstDataSpan hlsl_source, Shader*& out_shader);
+    Result CompileAndCreateShaderFromFile(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, const wchar_t* hlsl_source_file_path, Shader*& out_shader);
 
     Result MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_usage_flag, void*& out_data_ptr,
         uint32_t command_flags = 0);
@@ -1046,6 +1050,40 @@ Result DeviceImpl::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* b
     std::unique_ptr<char[]> data{ data_ptr };
 
     return CreateShaderFromMemory(desc, ConstDataSpan{data_ptr, data_size}, out_shader);
+}
+
+Result DeviceImpl::CompileAndCreateShaderFromMemory(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, ConstDataSpan hlsl_source, Shader*& out_shader)
+{
+    ShaderCompilationResult* result_ptr = nullptr;
+    JD3D12_RETURN_IF_FAILED(env_->CompileShaderFromMemory(compilation_params, L"shader_from_memory.hlsl",
+        hlsl_source, result_ptr));
+    std::unique_ptr<ShaderCompilationResult> result{ result_ptr };
+
+    JD3D12_RETURN_IF_FAILED(result->GetResult());
+
+    const ConstDataSpan bytecode = result->GetBytecode();
+    if(bytecode.size == 0)
+        return kErrorFail;
+
+    return CreateShaderFromMemory(desc, bytecode, out_shader);
+}
+
+Result DeviceImpl::CompileAndCreateShaderFromFile(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, const wchar_t* hlsl_source_file_path, Shader*& out_shader)
+{
+    ShaderCompilationResult* result_ptr = nullptr;
+    JD3D12_RETURN_IF_FAILED(env_->CompileShaderFromFile(compilation_params, hlsl_source_file_path,
+        result_ptr));
+    std::unique_ptr<ShaderCompilationResult> result{ result_ptr };
+
+    JD3D12_RETURN_IF_FAILED(result->GetResult());
+
+    const ConstDataSpan bytecode = result->GetBytecode();
+    if(bytecode.size == 0)
+        return kErrorFail;
+
+    return CreateShaderFromMemory(desc, bytecode, out_shader);
 }
 
 Result DeviceImpl::MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_usage_flag, void*& out_data_ptr,
@@ -2487,6 +2525,20 @@ Result Device::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytec
 {
     JD3D12_ASSERT(impl_ != nullptr);
     return impl_->CreateShaderFromFile(desc, bytecode_file_path, out_shader);
+}
+
+Result Device::CompileAndCreateShaderFromMemory(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, ConstDataSpan hlsl_source, Shader*& out_shader)
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+    return impl_->CompileAndCreateShaderFromMemory(compilation_params, desc, hlsl_source, out_shader);
+}
+
+Result Device::CompileAndCreateShaderFromFile(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, const wchar_t* hlsl_source_file_path, Shader*& out_shader)
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+    return impl_->CompileAndCreateShaderFromFile(compilation_params, desc, hlsl_source_file_path, out_shader);
 }
 
 Result Device::MapBuffer(Buffer& buf, Range byte_range, BufferFlags cpu_usage_flag, void*& out_data_ptr,

@@ -17,7 +17,8 @@ inline bool IsStringEmpty(const char* s) { return s == nullptr || s[0] == '\0'; 
 inline bool IsStringEmpty(const wchar_t* s) { return s == nullptr || s[0] == L'\0'; }
 
 /** \brief Returns true if the string is a valid identifier in HLSL language, suitable to be a function
-name or a macro name.
+name or a macro name - starts with a character `[A-Za-z_]` with next characters `[A-Za-z0-9_]`,
+like `"MainShader"`, `"main_shader_123"`.
 */
 bool IsHlslIdentifier(const wchar_t* s);
 
