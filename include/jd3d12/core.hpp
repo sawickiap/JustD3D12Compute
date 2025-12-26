@@ -140,6 +140,22 @@ enum ShaderCompilationFlags
     kShaderCompilationFlagNoFiniteMathOnly = 0x00000800u,
 };
 
+enum CharacterEncoding
+{
+    /// Treats string as encoded in ANSI (1-byte, `char` characters).
+    /// This value is equivalent to `CP_ACP` from WinAPI and `DXC_CP_ACP` from DXC.
+    kCharacterEncodingAnsi = 0,
+    /// Treats string as encoded in UTF-8.
+    /// This value is equivalent to `CP_UTF8` from WinAPI and `DXC_CP_UTF8` from DXC.
+    kCharacterEncodingUtf8 = 65001,
+    /// Treats string as encoded in UTF-16 (2-byte, `wchar_t` characters).
+    /// This value is equivalent to `DXC_CP_UTF16` from DXC.
+    kCharacterEncodingUtf16 = 1200,
+    /// Treats string as encoded in UTF-32.
+    /// This value is equivalent to `DXC_CP_UTF32` from DXC.
+    kCharacterEncodingUtf32 = 12000,
+};
+
 enum HlslVersion
 {
     kHlslVersion2016 = 2016,
@@ -175,17 +191,19 @@ struct ShaderCompilationParams
 {
     /// Use #ShaderCompilationFlags.
     uint32_t flags = 0;
+    /// Encoding of the source code characters.
+    CharacterEncoding character_encoding = kCharacterEncodingAnsi;
     /** \brief Name of the main function within the HLSL code that should be the entry point of the shader.
 
     Passed to DXC as `-E` parameter.
     */
     const wchar_t* entry_point = nullptr;
-    /** \brief HLSL language version. Use #HlslVersion enum. */
-    uint32_t hlsl_version = kHlslVersion2021;
-    /** \brief Shader model version. Use #ShaderModel enum. */
-    uint32_t shader_model = kShaderModel6_0;
-    /** \brief Optimization level. Use #ShaderOptimizationLevel enum. */
-    int32_t optimization_level = kShaderOptimizationLevel3;
+    /** \brief HLSL language version. */
+    HlslVersion hlsl_version = kHlslVersion2021;
+    /** \brief Shader model version. */
+    ShaderModel shader_model = kShaderModel6_0;
+    /** \brief Optimization level. */
+    ShaderOptimizationLevel optimization_level = kShaderOptimizationLevel3;
     /** \brief Array of null-terminated strings with HLSL preprocessor macros and their values to be predefined.
 
     It must contain an even number of elements, where each odd element is a macro name, while each
@@ -424,6 +442,7 @@ protected:
     virtual Result Init() = 0;
 
     friend class DeviceImpl;
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShader)
 };
 
 /** \brief Helper class that represents a shader created automatically when #Device is created
@@ -461,6 +480,8 @@ protected:
 
 private:
     ConstDataSpan bytecode_ = {};
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderFromMemory)
 };
 
 /** \brief Helper class that represents a shader created automatically when #Device is created
@@ -496,6 +517,50 @@ protected:
 
 private:
     const wchar_t* bytecode_file_path_ = nullptr;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderFromFile)
+};
+
+class StaticShaderCompiledFromMemory : public StaticShader
+{
+public:
+    StaticShaderCompiledFromMemory();
+    StaticShaderCompiledFromMemory(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, ConstDataSpan hlsl_source);
+    ~StaticShaderCompiledFromMemory() override;
+    bool IsSet() const noexcept { return hlsl_source_.data != nullptr && hlsl_source_.size > 0; }
+    void Set(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, ConstDataSpan hlsl_source);
+
+protected:
+    Result Init() override;
+
+private:
+    ShaderCompilationParams compilation_params_ = {};
+    ConstDataSpan hlsl_source_ = {};
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderCompiledFromMemory)
+};
+
+class StaticShaderCompiledFromFile : public StaticShader
+{
+public:
+    StaticShaderCompiledFromFile();
+    StaticShaderCompiledFromFile(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, const wchar_t* hlsl_source_file_path);
+    ~StaticShaderCompiledFromFile() override;
+    bool IsSet() const noexcept;
+    void Set(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, const wchar_t* hlsl_source_file_path);
+
+protected:
+    Result Init() override;
+
+private:
+    ShaderCompilationParams compilation_params_ = {};
+    const wchar_t* hlsl_source_file_path_ = nullptr;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderCompiledFromFile)
 };
 
 class StaticBuffer
@@ -517,6 +582,7 @@ protected:
     virtual Result Init();
 
     friend class DeviceImpl;
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBuffer)
 };
 
 class StaticBufferFromMemory : public StaticBuffer
@@ -532,6 +598,8 @@ protected:
 
 private:
     ConstDataSpan initial_data_ = {};
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBufferFromMemory)
 };
 
 class StaticBufferFromFile : public StaticBuffer
@@ -547,6 +615,8 @@ protected:
 
 private:
     const wchar_t* initial_data_file_path_ = nullptr;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBufferFromFile)
 };
 
 struct EnvironmentDesc
@@ -626,6 +696,7 @@ public:
     */
     Result CompileShaderFromFile(const ShaderCompilationParams& params,
         const wchar_t* hlsl_source_file_path, ShaderCompilationResult*& out_result);
+
 private:
     EnvironmentImpl* impl_ = nullptr;
 

@@ -690,6 +690,7 @@ TEST_CASE("Constant buffer", "[gpu][buffer]")
     std::unique_ptr<Shader> shader;
     {
         ShaderCompilationParams compilation_params{};
+        compilation_params.character_encoding = kCharacterEncodingUtf16;
         compilation_params.entry_point = L"Main";
 
         ShaderDesc shader_desc{};

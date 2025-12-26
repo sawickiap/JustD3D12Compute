@@ -2150,7 +2150,7 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
         || params.optimization_level == kShaderOptimizationLevel3,
         "Invalid optimization level specified in ShaderCompilationParams::optimization_level.");
     if (params.optimization_level == kShaderOptimizationDisabled)
-        out_arguments.push_back(L"-Od");
+        out_arguments.push_back(DXC_ARG_SKIP_OPTIMIZATIONS);
     else if (params.optimization_level != kShaderOptimizationLevel3)
         out_arguments.push_back(SPrintF(L"-O%d", params.optimization_level));
 
@@ -2190,19 +2190,19 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
     if((params.flags & kShaderCompilationFlagEnable16BitTypes) != 0)
         out_arguments.push_back(L"-enable-16bit-types");
     if((params.flags & kShaderCompilationFlagAvoidFlowControl) != 0)
-        out_arguments.push_back(L"-Gfa");
+        out_arguments.push_back(DXC_ARG_AVOID_FLOW_CONTROL);
     if ((params.flags & kShaderCompilationFlagPreferFlowControl) != 0)
-        out_arguments.push_back(L"-Gfp");
+        out_arguments.push_back(DXC_ARG_PREFER_FLOW_CONTROL);
     if((params.flags & kShaderCompilationFlagEnableIeeeStrictness) != 0)
-        out_arguments.push_back(L"-Gis");
+        out_arguments.push_back(DXC_ARG_IEEE_STRICTNESS);
     if((params.flags & kShaderCompilationFlagSuppressWarnings) != 0)
         out_arguments.push_back(L"-no-warnings");
     if((params.flags & kShaderCompilationFlagTreatWarningsAsErrors) != 0)
-        out_arguments.push_back(L"-WX");
+        out_arguments.push_back(DXC_ARG_WARNINGS_ARE_ERRORS);
     if((params.flags & kShaderCompilationFlagPackMatricesColumnMajor) != 0)
-        out_arguments.push_back(L"-Zpc");
+        out_arguments.push_back(DXC_ARG_PACK_MATRIX_COLUMN_MAJOR);
     if((params.flags & kShaderCompilationFlagPackMatricesRowMajor) != 0)
-        out_arguments.push_back(L"-Zpr");
+        out_arguments.push_back(DXC_ARG_PACK_MATRIX_ROW_MAJOR);
     if((params.flags & kShaderCompilationFlagFiniteMathOnly) != 0)
         out_arguments.push_back(L"-ffinite-math-only");
     if((params.flags & kShaderCompilationFlagNoFiniteMathOnly) != 0)
@@ -2746,6 +2746,91 @@ Result StaticShaderFromFile::Init()
     Device* dev = singleton.first_dev_;
     JD3D12_ASSERT(dev != nullptr && singleton.dev_count_ == 1);
     return dev->CreateShaderFromFile(desc_, bytecode_file_path_, shader_);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticShaderCompiledFromMemory
+
+StaticShaderCompiledFromMemory::StaticShaderCompiledFromMemory()
+{
+}
+
+StaticShaderCompiledFromMemory::StaticShaderCompiledFromMemory(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, ConstDataSpan hlsl_source)
+    : StaticShader{ desc }
+    , compilation_params_{ compilation_params }
+    , hlsl_source_{ hlsl_source }
+{
+}
+
+Result StaticShaderCompiledFromMemory::Init()
+{
+    if(!IsSet())
+        return kFalse;
+
+    Singleton& singleton = Singleton::GetInstance();
+    Device* dev = singleton.first_dev_;
+    JD3D12_ASSERT(dev != nullptr && singleton.dev_count_ == 1);
+    return dev->CompileAndCreateShaderFromMemory(compilation_params_, desc_, hlsl_source_, shader_);
+}
+
+StaticShaderCompiledFromMemory::~StaticShaderCompiledFromMemory()
+{
+}
+
+void StaticShaderCompiledFromMemory::Set(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, ConstDataSpan hlsl_source)
+{
+    JD3D12_ASSERT(!shader_ && "Cannot call StaticShaderCompiledFromMemory::Set when the shader is already created.");
+
+    desc_ = desc;
+    compilation_params_ = compilation_params;
+    hlsl_source_ = hlsl_source;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Public class StaticShaderCompiledFromMemory
+
+StaticShaderCompiledFromFile::StaticShaderCompiledFromFile()
+{
+}
+
+StaticShaderCompiledFromFile::StaticShaderCompiledFromFile(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, const wchar_t* hlsl_source_file_path)
+    : StaticShader{ desc }
+    , compilation_params_{ compilation_params }
+    , hlsl_source_file_path_{ hlsl_source_file_path }
+{
+}
+
+Result StaticShaderCompiledFromFile::Init()
+{
+    if(!IsSet())
+        return kFalse;
+
+    Singleton& singleton = Singleton::GetInstance();
+    Device* dev = singleton.first_dev_;
+    JD3D12_ASSERT(dev != nullptr && singleton.dev_count_ == 1);
+    return dev->CompileAndCreateShaderFromFile(compilation_params_, desc_, hlsl_source_file_path_, shader_);
+}
+
+StaticShaderCompiledFromFile::~StaticShaderCompiledFromFile()
+{
+}
+
+bool StaticShaderCompiledFromFile::IsSet() const noexcept
+{
+    return !IsStringEmpty(hlsl_source_file_path_);
+}
+
+void StaticShaderCompiledFromFile::Set(const ShaderCompilationParams& compilation_params,
+    const ShaderDesc& desc, const wchar_t* hlsl_source_file_path)
+{
+    JD3D12_ASSERT(!shader_ && "Cannot call StaticShaderCompiledFromFile::Set when the shader is already created.");
+
+    desc_ = desc;
+    compilation_params_ = compilation_params;
+    hlsl_source_file_path_ = hlsl_source_file_path;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
