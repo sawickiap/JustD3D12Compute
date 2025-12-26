@@ -39,3 +39,13 @@ void Main_ByteAddress(uint3 dtid : SV_DispatchThreadID)
     f = f * f + 1.0;
     byte_address_buf.Store<float>(address, f);
 }
+
+#if ENABLING_MACRO == 4
+[numthreads(32, 1, 1)]
+void Main_Conditional(uint3 dtid : SV_DispatchThreadID)
+{
+    uint address = dtid.x * sizeof(float);
+    uint value = dtid.x * dtid.x + 1;
+    byte_address_buf.Store<uint>(address, value);
+}
+#endif

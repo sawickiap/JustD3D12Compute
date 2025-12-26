@@ -2184,14 +2184,20 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
 
     // Individual flags.
     if((params.flags & kShaderCompilationFlagDenormPreserve) != 0)
-        out_arguments.push_back(L"-denorm preserve");
-    if((params.flags & kShaderCompilationFlagDenormFlushToZero) != 0)
-        out_arguments.push_back(L"-denorm ftz");
+    {
+        out_arguments.push_back(L"-denorm");
+        out_arguments.push_back(L"preserve");
+    }
+    else if((params.flags & kShaderCompilationFlagDenormFlushToZero) != 0)
+    {
+        out_arguments.push_back(L"-denorm");
+        out_arguments.push_back(L"ftz");
+    }
     if((params.flags & kShaderCompilationFlagEnable16BitTypes) != 0)
         out_arguments.push_back(L"-enable-16bit-types");
     if((params.flags & kShaderCompilationFlagAvoidFlowControl) != 0)
         out_arguments.push_back(DXC_ARG_AVOID_FLOW_CONTROL);
-    if ((params.flags & kShaderCompilationFlagPreferFlowControl) != 0)
+    else if ((params.flags & kShaderCompilationFlagPreferFlowControl) != 0)
         out_arguments.push_back(DXC_ARG_PREFER_FLOW_CONTROL);
     if((params.flags & kShaderCompilationFlagEnableIeeeStrictness) != 0)
         out_arguments.push_back(DXC_ARG_IEEE_STRICTNESS);
@@ -2201,11 +2207,11 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
         out_arguments.push_back(DXC_ARG_WARNINGS_ARE_ERRORS);
     if((params.flags & kShaderCompilationFlagPackMatricesColumnMajor) != 0)
         out_arguments.push_back(DXC_ARG_PACK_MATRIX_COLUMN_MAJOR);
-    if((params.flags & kShaderCompilationFlagPackMatricesRowMajor) != 0)
+    else if((params.flags & kShaderCompilationFlagPackMatricesRowMajor) != 0)
         out_arguments.push_back(DXC_ARG_PACK_MATRIX_ROW_MAJOR);
     if((params.flags & kShaderCompilationFlagFiniteMathOnly) != 0)
         out_arguments.push_back(L"-ffinite-math-only");
-    if((params.flags & kShaderCompilationFlagNoFiniteMathOnly) != 0)
+    else if((params.flags & kShaderCompilationFlagNoFiniteMathOnly) != 0)
         out_arguments.push_back(L"-fno-finite-math-only");
 
     return kOK;

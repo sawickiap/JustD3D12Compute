@@ -773,3 +773,55 @@ TEST_CASE("WriteMemoryToBuffer with a GPU read-write buffer", "[gpu][buffer]")
         Range{0, buf_desc.size}, dst_data.data())));
     CHECK(memcmp(dst_data.data(), src_data.data(), buf_desc.size) == 0);
 }
+
+TEST_CASE("Shader compilation params", "[gpu][buffer][hlsl]")
+{
+    std::unique_ptr<Shader> shader;
+    {
+        const wchar_t* macros[] = { L"ENABLING_MACRO", L"4" };
+
+        ShaderCompilationParams compilation_params{};
+        compilation_params.flags = kShaderCompilationFlagEnableIeeeStrictness
+            //| kShaderCompilationFlagAvoidFlowControl // Doesn't work, I don't know why.
+            //| kShaderCompilationFlagDenormPreserve // Doesn't work, I don't know why.
+            | kShaderCompilationFlagNoFiniteMathOnly
+            | kShaderCompilationFlagTreatWarningsAsErrors;
+        compilation_params.entry_point = L"Main_Conditional";
+        compilation_params.optimization_level = kShaderOptimizationDisabled;
+        compilation_params.shader_model = kShaderModel6_1;
+        compilation_params.macro_defines = { macros, _countof(macros) };
+
+        ShaderDesc shader_desc{};
+        shader_desc.name = L"Main_Conditional shader";
+
+        Shader* shader_ptr = nullptr;
+        REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
+            shader_desc, L"shaders/Test.hlsl", shader_ptr)));
+        shader.reset(shader_ptr);
+    }
+
+    BufferDesc default_buf_desc{};
+    default_buf_desc.name = L"My buffer DEFAULT";
+    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferFlagByteAddress
+        | kBufferUsageFlagShaderRWResource;
+    default_buf_desc.size = 32 * sizeof(uint32_t);
+
+    Buffer* buffer_ptr = nullptr;
+    REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
+    std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
+
+    REQUIRE(Succeeded(g_dev->BindRWBuffer(2, default_buffer.get())));
+    // (1, 1, 1) group of (32, 1, 1) threads = 32 uint32_t values to fill.
+    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*shader, { 1, 1, 1 })));
+    g_dev->ResetAllBindings();
+    REQUIRE(g_main_readback_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*default_buffer, Range{ 0, default_buf_desc.size },
+        *g_main_readback_buffer, 0)));
+
+    std::array<uint32_t, 32> dst_data, expected_data;
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
+        Range{ 0, default_buf_desc.size }, dst_data.data())));
+    for(uint32_t i = 0; i < 32; ++i)
+        expected_data[i] = i * i + 1;
+    CHECK(memcmp(dst_data.data(), expected_data.data(), default_buf_desc.size) == 0);
+}
