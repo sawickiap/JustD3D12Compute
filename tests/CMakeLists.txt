@@ -29,14 +29,16 @@ else()
    target_compile_options(jd3d12_tests PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-file(GLOB TEST_DXIL_SHADERS CONFIGURE_DEPENDS
-   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.dxil"
+file(GLOB TEST_SHADERS CONFIGURE_DEPENDS
+   "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.hlsl"
 )
 add_custom_command(TARGET jd3d12_tests POST_BUILD
-   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-           ${TEST_DXIL_SHADERS}
-           $<TARGET_FILE_DIR:jd3d12_tests>
-   COMMENT "Copying test DXIL shaders to test runtime directory."
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:jd3d12_tests>/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${TEST_SHADERS}
+        $<TARGET_FILE_DIR:jd3d12_tests>/shaders
+    COMMENT "Copying test HLSL shaders to test runtime directory."
 )
 add_custom_command(TARGET jd3d12_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
