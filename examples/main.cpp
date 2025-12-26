@@ -25,15 +25,6 @@
 
 using namespace jd3d12;
 
-StaticShaderFromFile typed_shader{
-    ShaderDesc{ L"Typed shader" }, L"Test_Typed.dxil" };
-StaticShaderFromFile structured_shader{
-    ShaderDesc{ L"Structured shader" }, L"Test_Structured.dxil" };
-StaticShaderFromFile byte_address_shader{
-    ShaderDesc{ L"ByteAddress shader" }, L"Test_ByteAddress.dxil" };
-StaticShaderFromFile copy_squared_typed_shader{
-    ShaderDesc{ L"copy_squared_typed" }, L"CopySquaredTyped.dxil" };
-
 constexpr size_t kMainBufSize = 10 * kMegabyte;
 
 std::array<float, 8> main_src_data = { 1, 2, 3, 4, 5, 6, 7, 8 };
@@ -66,75 +57,40 @@ int main(int argc, char** argv)
     assert(Succeeded(CreateEnvironment(env_desc, g_env)));
     env.reset(g_env);
 
+    std::unique_ptr<ShaderCompilationResult> shader_compilation_result;
+    {
+        char* hlsl_source = nullptr;
+        size_t hlsl_source_length = 0;
+        REQUIRE(Succeeded(LoadFile(L"c:/Code/JustD3D12Compute/REPO/tests/shaders/Test.hlsl",
+            hlsl_source, hlsl_source_length)));
+
+        ShaderCompilationParams shader_compilation_params{};
+        shader_compilation_params.entry_point = L"Main_ByteAddress";
+        ShaderCompilationResult* result_ptr = nullptr;
+        Result r = env->CompileShaderFromMemory(shader_compilation_params,
+            ConstDataSpan{ hlsl_source, hlsl_source_length }, result_ptr);
+        shader_compilation_result.reset(result_ptr);
+
+        const char* errors_and_warnings = shader_compilation_result->GetErrorsAndWarnings();
+        if(!IsStringEmpty(errors_and_warnings))
+            wprintf(L"ERRORS AND WARNINGS:\n%S\n", errors_and_warnings);
+
+        REQUIRE(Succeeded(r));
+        REQUIRE(Succeeded(shader_compilation_result->GetResult()));
+    }
+
     DeviceDesc device_desc;
     device_desc.name = L"My device";
     assert(Succeeded(env->CreateDevice(device_desc, g_dev)));
     dev.reset(g_dev);
 
+    std::unique_ptr<Shader> byte_address_shader;
     {
-        BufferDesc default_buf_desc{};
-        default_buf_desc.name = L"My buffer DEFAULT";
-        default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferUsageFlagShaderRWResource
-            | kBufferFlagTyped;
-        default_buf_desc.size = kMainBufSize;
-        default_buf_desc.element_format = Format::kR32_Float;
-        Buffer* buffer_ptr = nullptr;
-        REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
-        std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
-
-        REQUIRE(main_upload_buffer.GetBuffer() != nullptr);
-        REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(), Range{0, kMainBufSize}, *default_buffer, 0)));
-        REQUIRE(Succeeded(g_dev->BindRWBuffer(0, default_buffer.get())));
-        REQUIRE(typed_shader.GetShader() != nullptr);
-        REQUIRE(Succeeded(g_dev->DispatchComputeShader(*typed_shader.GetShader(), { 8, 1, 1 })));
-        g_dev->ResetAllBindings();
-        REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
-        REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
-
-        REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
-        REQUIRE(Succeeded(g_dev->WaitForGPU()));
-
-        std::array<float, 8> dst_data;
-        REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0, dst_data.size() * sizeof(float)},
-            dst_data.data())));
-
-        for(size_t i = 0; i < dst_data.size(); ++i)
-        {
-            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
-        }
-    }
-
-    {
-        BufferDesc default_buf_desc{};
-        default_buf_desc.name = L"My buffer DEFAULT";
-        default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferFlagStructured
-            | kBufferUsageFlagShaderRWResource;
-        default_buf_desc.size = kMainBufSize;
-        default_buf_desc.structure_size = sizeof(float);
-        Buffer* buffer_ptr = nullptr;
-        REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
-        std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
-
-        REQUIRE(main_upload_buffer.GetBuffer() != nullptr);
-        REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(), Range{0, kMainBufSize}, *default_buffer, 0)));
-        REQUIRE(Succeeded(g_dev->BindRWBuffer(1, default_buffer.get())));
-        REQUIRE(structured_shader.GetShader() != nullptr);
-        REQUIRE(Succeeded(g_dev->DispatchComputeShader(*structured_shader.GetShader(), { 8, 1, 1 })));
-        g_dev->ResetAllBindings();
-        REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
-        REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));
-
-        REQUIRE(Succeeded(g_dev->SubmitPendingCommands()));
-        REQUIRE(Succeeded(g_dev->WaitForGPU()));
-
-        std::array<float, 8> dst_data;
-        REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*main_readback_buffer.GetBuffer(), Range{0,
-            dst_data.size() * sizeof(float)}, dst_data.data())));
-
-        for(size_t i = 0; i < dst_data.size(); ++i)
-        {
-            CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
-        }
+        ShaderDesc shader_desc = {};
+        Shader* shader_ptr = nullptr;
+        ConstDataSpan bytecode_data = shader_compilation_result->GetBytecode();
+        REQUIRE(Succeeded(dev->CreateShaderFromMemory(shader_desc, bytecode_data, shader_ptr)));
+        byte_address_shader.reset(shader_ptr);
     }
 
     {
@@ -151,8 +107,7 @@ int main(int argc, char** argv)
         REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(),
             Range{0, kMainBufSize}, *default_buffer, 0)));
         REQUIRE(Succeeded(g_dev->BindRWBuffer(2, default_buffer.get())));
-        REQUIRE(byte_address_shader.GetShader() != nullptr);
-        REQUIRE(Succeeded(g_dev->DispatchComputeShader(*byte_address_shader.GetShader(), { 8, 1, 1 })));
+        REQUIRE(Succeeded(g_dev->DispatchComputeShader(*byte_address_shader, { 8, 1, 1 })));
         g_dev->ResetAllBindings();
         REQUIRE(main_readback_buffer.GetBuffer() != nullptr);
         REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *main_readback_buffer.GetBuffer())));

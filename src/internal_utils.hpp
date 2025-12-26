@@ -68,6 +68,24 @@ public:
             heap_items_.emplace_back(std::move(val));
         ++count_;
     }
+    void PushBack(const T& val)
+    {
+        // Adding still to stack_items_.
+        if(count_ < stack_item_max_count)
+            stack_items_[count_] = val;
+        // Moving from stack_items_ to heap_items_.
+        else if(count_ == stack_item_max_count)
+        {
+            heap_items_.reserve(count_ * 2);
+            for(size_t i = 0; i < count_; ++i)
+                heap_items_.emplace_back(std::move(stack_items_[i]));
+            heap_items_.push_back(val);
+        }
+        // Adding already to heap_items_.
+        else
+            heap_items_.push_back(val);
+        ++count_;
+    }
 
 private:
     size_t count_ = 0;

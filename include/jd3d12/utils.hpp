@@ -287,6 +287,15 @@ struct DataSpan
 };
 constexpr DataSpan kEmptyDataSpan = { nullptr, 0 };
 
+template<typename T>
+struct ArraySpan
+{
+    T* data;
+    size_t count;
+    bool operator==(const ArraySpan<T>& rhs) const noexcept { return data == rhs.data && count == rhs.count; }
+    bool operator!=(const ArraySpan<T>& rhs) const noexcept { return data != rhs.data || count != rhs.count; }
+};
+
 // If range.end == SIZE_MAX, limits it to real_size.
 inline Range LimitRange(Range range, size_t real_size)
 {

@@ -25,6 +25,8 @@ add_custom_command(TARGET jd3d12_example POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${JD3D12_DX12_AGILITY_SDK_PATH}/build/native/bin/x64/D3D12Core.dll"
         "${JD3D12_DX12_AGILITY_SDK_PATH}/build/native/bin/x64/d3d12SDKLayers.dll"
+        "${JD3D12_DXC_PATH}/bin/x64/dxcompiler.dll"
+        "${JD3D12_DXC_PATH}/bin/x64/dxil.dll"
         $<TARGET_FILE_DIR:jd3d12_example>/D3D12
     COMMENT "Copying Direct3D 12 Agility SDK runtime DLLs."
 )

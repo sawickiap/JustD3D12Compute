@@ -186,14 +186,41 @@ struct ShaderCompilationParams
     uint32_t shader_model = kShaderModel6_0;
     /** Optimization level. Use #ShaderOptimizationLevel enum. */
     int32_t optimization_level = kShaderOptimizationLevel3;
+    /** Additional arguments passed directly to DXC. */
+    ArraySpan<const wchar_t*> additional_dxc_args = { nullptr, 0 };
 };
 
+/** \brief Stores the result of a shader compilation from HLSL source code to bytecode.
+
+Successful creation of this object doesn't necessarily mean the compilation succeeded.
+In case of failed compilation, it stores error messages.
+Call GetResult() to check whether the compilation was successful.
+*/
 class ShaderCompilationResult
 {
 public:
     ~ShaderCompilationResult();
     ShaderCompilationResultImpl* GetImpl() const noexcept { return impl_; }
     Environment* GetEnvironment() const noexcept;
+
+    /** \brief Returns the result of the shader compilation (#kOK in case of success).
+    */
+    Result GetResult();
+    /** \brief Returns compilation errors and warnings as a null-terminated string, possibly multi-line,
+    in UTF-8 encoding.
+
+    If there are no errors or warnings, an empty string is returned. It never returns null.
+
+    Returned memory is owned by this object. You shoudln't free it.
+    */
+    const char* GetErrorsAndWarnings();
+    /** \brief Returns the compiled shader bytecode.
+
+    If the compilation failed, an empty data span is returned with `data` = null.
+
+    Returned memory is owned by this object. You shoudln't free it.
+    */
+    ConstDataSpan GetBytecode();
 
 private:
     ShaderCompilationResultImpl* impl_ = nullptr;
@@ -535,8 +562,18 @@ public:
     /// Returns `ID3D12DeviceFactory*`.
     void* GetNativeDeviceFactory() const noexcept;
 
+    /** \brief Creates the main #Device object, initializing selected GPU to prepare it for work.
+    */
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
 
+    /** \brief Compiles a compute shader from HLSL source code to bytecode.
+
+    Note that this function returning #kOK doesn't necessarily mean the compilation succeeded.
+    It only means the shader compiler has been invoked and the `out_result` object has been created.
+    Inspect that object to check the compilation status (ShaderCompilationResult::GetResult),
+    obtain the compiled bytecode (ShaderCompilationResult::GetBytecode), if present, and/or
+    error/warning messages (ShaderCompilationResult::GetErrorsAndWarnings).
+    */
     Result CompileShaderFromMemory(const ShaderCompilationParams& params,
         ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
 
