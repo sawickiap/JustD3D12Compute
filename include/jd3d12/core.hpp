@@ -573,10 +573,25 @@ public:
     Inspect that object to check the compilation status (ShaderCompilationResult::GetResult),
     obtain the compiled bytecode (ShaderCompilationResult::GetBytecode), if present, and/or
     error/warning messages (ShaderCompilationResult::GetErrorsAndWarnings).
+
+    This operation is not connected to any particular #Device. Call Device::CreateShaderFromMemory
+    to create an actual shader from the bytecode.
     */
     Result CompileShaderFromMemory(const ShaderCompilationParams& params,
         ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
+    /** \brief Compiles a compute shader from HLSL source code loaded from a file.
 
+    Note that this function returning #kOK doesn't necessarily mean the compilation succeeded.
+    It only means the shader compiler has been invoked and the `out_result` object has been created.
+    Inspect that object to check the compilation status (ShaderCompilationResult::GetResult),
+    obtain the compiled bytecode (ShaderCompilationResult::GetBytecode), if present, and/or
+    error/warning messages (ShaderCompilationResult::GetErrorsAndWarnings).
+
+    This operation is not connected to any particular #Device. Call Device::CreateShaderFromMemory
+    to create an actual shader from the bytecode.
+    */
+    Result CompileShaderFromFile(const ShaderCompilationParams& params,
+        const wchar_t* hlsl_source_file_path, ShaderCompilationResult*& out_result);
 private:
     EnvironmentImpl* impl_ = nullptr;
 

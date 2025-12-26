@@ -59,16 +59,11 @@ int main(int argc, char** argv)
 
     std::unique_ptr<ShaderCompilationResult> shader_compilation_result;
     {
-        char* hlsl_source = nullptr;
-        size_t hlsl_source_length = 0;
-        REQUIRE(Succeeded(LoadFile(L"c:/Code/JustD3D12Compute/REPO/tests/shaders/Test.hlsl",
-            hlsl_source, hlsl_source_length)));
-
         ShaderCompilationParams shader_compilation_params{};
         shader_compilation_params.entry_point = L"Main_ByteAddress";
         ShaderCompilationResult* result_ptr = nullptr;
-        Result r = env->CompileShaderFromMemory(shader_compilation_params,
-            ConstDataSpan{ hlsl_source, hlsl_source_length }, result_ptr);
+        Result r = env->CompileShaderFromFile(shader_compilation_params,
+            L"c:/Code/JustD3D12Compute/REPO/tests/shaders/Test.hlsl", result_ptr);
         shader_compilation_result.reset(result_ptr);
 
         const char* errors_and_warnings = shader_compilation_result->GetErrorsAndWarnings();

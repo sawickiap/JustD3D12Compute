@@ -409,6 +409,8 @@ public:
 
     Result CompileShaderFromMemory(const ShaderCompilationParams& params, const wchar_t* name,
         ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
+    Result CompileShaderFromFile(const ShaderCompilationParams& params,
+        const wchar_t* hlsl_source_file_name, ShaderCompilationResult*& out_result);
 
 private:
     Environment* const interface_obj_;
@@ -2230,6 +2232,21 @@ Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& p
     return kOK;
 }
 
+Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& params,
+    const wchar_t* hlsl_source_file_name, ShaderCompilationResult*& out_result)
+{
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(hlsl_source_file_name),
+        "hlsl_source_file_name cannot be null or empty.");
+
+    char* source_ptr = nullptr;
+    size_t source_size = 0;
+    JD3D12_RETURN_IF_FAILED(LoadFile(hlsl_source_file_name, source_ptr, source_size));
+    std::unique_ptr<char[]> source{ source_ptr };
+
+    return CompileShaderFromMemory(params, hlsl_source_file_name,
+        ConstDataSpan{source_ptr, source_size}, out_result);
+}
+
 Result EnvironmentImpl::Init(const EnvironmentDesc& desc)
 {
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc.d3d12_dll_path),
@@ -2816,6 +2833,13 @@ Result Environment::CompileShaderFromMemory(const ShaderCompilationParams& param
     JD3D12_ASSERT(impl_ != nullptr);
     return impl_->CompileShaderFromMemory(params, L"shader_from_memory.hlsl",
         hlsl_source, out_result);
+}
+
+Result Environment::CompileShaderFromFile(const ShaderCompilationParams& params,
+    const wchar_t* hlsl_source_file_path, ShaderCompilationResult*& out_result)
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+    return impl_->CompileShaderFromFile(params, hlsl_source_file_path, out_result);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
