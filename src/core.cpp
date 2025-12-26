@@ -2082,8 +2082,8 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
         out_arguments.push_back(source_name);
 
     // Entry point.
-    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(params.entry_point),
-        "ShaderCompilationParams::entry_point cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(IsHlslIdentifier(params.entry_point),
+        "ShaderCompilationParams::entry_point must be a valid HLSL identifier.");
     out_arguments.push_back(L"-E");
     out_arguments.push_back(params.entry_point);
 
@@ -2136,7 +2136,7 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
     {
         const wchar_t* const macro_name = params.macro_defines.data[i];
         const wchar_t* const macro_value = params.macro_defines.data[i + 1];
-        JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(macro_name), "Macro name cannot be null or empty.");
+        JD3D12_ASSERT_OR_RETURN(IsHlslIdentifier(macro_name), "Macro name must be a valid HLSL identifier.");
         out_arguments.push_back(L"-D");
         if(IsStringEmpty(macro_value))
             out_arguments.push_back(macro_name);

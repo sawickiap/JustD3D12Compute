@@ -16,6 +16,11 @@ namespace jd3d12
 inline bool IsStringEmpty(const char* s) { return s == nullptr || s[0] == '\0'; }
 inline bool IsStringEmpty(const wchar_t* s) { return s == nullptr || s[0] == L'\0'; }
 
+/** \brief Returns true if the string is a valid identifier in HLSL language, suitable to be a function
+name or a macro name.
+*/
+bool IsHlslIdentifier(const wchar_t* s);
+
 // Compatible with HRESULT.
 typedef int32_t Result;
 

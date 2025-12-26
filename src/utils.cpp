@@ -229,7 +229,32 @@ constexpr FormatDescRecord kFormatDescRecords[] = {
     { L"A4B4G4R4_Unorm", Format::kUnknown, 16, 4, 4, 0 } },
 };
 
+inline bool IsCharAlpha(wchar_t ch)
+{
+    return (ch >= L'A') && (ch <= L'Z')
+        || (ch >= L'a') && (ch <= L'z')
+        || (ch == L'_');
+}
+inline bool IsCharAlphaNumeric(wchar_t ch)
+{
+    return IsCharAlpha(ch) || (ch >= '0' && ch <= '9');
+}
+
 } // anonymous namespace
+
+bool IsHlslIdentifier(const wchar_t* s)
+{
+    if(IsStringEmpty(s))
+        return false;
+    if(!IsCharAlpha(s[0]))
+        return false;
+    for(size_t i = 1, len = wcslen(s); i < len; ++i)
+    {
+        if(!IsCharAlphaNumeric(s[i]))
+            return false;
+    }
+    return true;
+}
 
 Result MakeResultFromLastError()
 {
