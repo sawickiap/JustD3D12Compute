@@ -407,7 +407,7 @@ public:
 
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
 
-    Result CompileShaderFromMemory(const ShaderCompilationParams& params,
+    Result CompileShaderFromMemory(const ShaderCompilationParams& params, const wchar_t* name,
         ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
 
 private:
@@ -2114,6 +2114,19 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
     else if (params.optimization_level != kShaderOptimizationLevel3)
         out_arguments.push_back(SPrintF(L"-O%d", params.optimization_level));
 
+    JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
+        kShaderCompilationFlagDenormPreserve | kShaderCompilationFlagDenormFlushToZero)) <= 1,
+        "kShaderCompilationFlagDenormPreserve and kShaderCompilationFlagDenormFlushToZero and mutually exclusive.");
+    JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
+        kShaderCompilationFlagAvoidFlowControl | kShaderCompilationFlagPreferFlowControl)) <= 1,
+        "kShaderCompilationFlagAvoidFlowControl and kShaderCompilationFlagPreferFlowControl and mutually exclusive.");
+    JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
+        kShaderCompilationFlagPackMatricesColumnMajor | kShaderCompilationFlagPackMatricesRowMajor)) <= 1,
+        "kShaderCompilationFlagPackMatricesColumnMajor and kShaderCompilationFlagPackMatricesRowMajor and mutually exclusive.");
+    JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
+        kShaderCompilationFlagFiniteMathOnly | kShaderCompilationFlagNoFiniteMathOnly)) <= 1,
+        "kShaderCompilationFlagFiniteMathOnly and kShaderCompilationFlagNoFiniteMathOnly and mutually exclusive.");
+
     // Individual flags.
     if((params.flags & kShaderCompilationFlagDenormPreserve) != 0)
         out_arguments.push_back(L"-denorm preserve");
@@ -2172,7 +2185,7 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
     return kOK;
 }
 
-Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& params,
+Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& params, const wchar_t* name,
     ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result)
 {
     out_result = nullptr;
@@ -2184,7 +2197,7 @@ Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& p
 
     // Build the list of arguments.
     std::vector<std::wstring> args;
-    JD3D12_RETURN_IF_FAILED(shader_compiler_.BuildArguments(params, L"shader_from_memory.hlsl", args));
+    JD3D12_RETURN_IF_FAILED(shader_compiler_.BuildArguments(params, name, args));
 
     // Build the list of arguments as const wchar_t*[].
     StackOrHeapVector<const wchar_t*, 16> arg_pointers;
@@ -2801,7 +2814,8 @@ Result Environment::CompileShaderFromMemory(const ShaderCompilationParams& param
     ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result)
 {
     JD3D12_ASSERT(impl_ != nullptr);
-    return impl_->CompileShaderFromMemory(params, hlsl_source, out_result);
+    return impl_->CompileShaderFromMemory(params, L"shader_from_memory.hlsl",
+        hlsl_source, out_result);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
