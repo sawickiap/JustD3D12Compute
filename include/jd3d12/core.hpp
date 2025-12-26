@@ -175,18 +175,36 @@ struct ShaderCompilationParams
 {
     /// Use #ShaderCompilationFlags.
     uint32_t flags = 0;
-    /** Name of the main function within the HLSL code that should be the entry point of the shader.
+    /** \brief Name of the main function within the HLSL code that should be the entry point of the shader.
 
     Passed to DXC as `-E` parameter.
     */
     const wchar_t* entry_point = nullptr;
-    /** HLSL language version. Use #HlslVersion enum. */
+    /** \brief HLSL language version. Use #HlslVersion enum. */
     uint32_t hlsl_version = kHlslVersion2021;
-    /** Shader model version. Use #ShaderModel enum. */
+    /** \brief Shader model version. Use #ShaderModel enum. */
     uint32_t shader_model = kShaderModel6_0;
-    /** Optimization level. Use #ShaderOptimizationLevel enum. */
+    /** \brief Optimization level. Use #ShaderOptimizationLevel enum. */
     int32_t optimization_level = kShaderOptimizationLevel3;
-    /** Additional arguments passed directly to DXC. */
+    /** \brief Array of null-terminated strings with HLSL preprocessor macros and their values to be predefined.
+
+    It must contain an even number of elements, where each odd element is a macro name, while each
+    even element is the value of this macro. The value can be null or empty.
+    For example, following 4-element array:
+
+    \code
+    { L"DEFINED_MACRO", nullptr, L"NUMERIC_MACRO", L"123" }
+    \endcode
+
+    Is a predefind equivalent of following macros in HLSL:
+
+    \code
+    #define DEFINED_MACRO
+    #define NUMERIC_MACRO 123
+    \endcode
+    */
+    ArraySpan<const wchar_t*> macro_defines = { nullptr, 0 };
+    /** \briefArray of null-terminated strings with additional arguments to be passed directly to DXC. */
     ArraySpan<const wchar_t*> additional_dxc_args = { nullptr, 0 };
 };
 

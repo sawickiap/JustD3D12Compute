@@ -2129,6 +2129,21 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
         kShaderCompilationFlagFiniteMathOnly | kShaderCompilationFlagNoFiniteMathOnly)) <= 1,
         "kShaderCompilationFlagFiniteMathOnly and kShaderCompilationFlagNoFiniteMathOnly and mutually exclusive.");
 
+    // Macro definitions.
+    JD3D12_ASSERT_OR_RETURN(params.macro_defines.count % 2 == 0,
+        "ShaderCompilationParams::macro_defines must contains an even number of elements for macro names and their values.");
+    for(size_t i = 0; i < params.macro_defines.count; i += 2)
+    {
+        const wchar_t* const macro_name = params.macro_defines.data[i];
+        const wchar_t* const macro_value = params.macro_defines.data[i + 1];
+        JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(macro_name), "Macro name cannot be null or empty.");
+        out_arguments.push_back(L"-D");
+        if(IsStringEmpty(macro_value))
+            out_arguments.push_back(macro_name);
+        else
+            out_arguments.push_back(macro_name + std::wstring{L"="} + macro_value);
+    }
+
     // Individual flags.
     if((params.flags & kShaderCompilationFlagDenormPreserve) != 0)
         out_arguments.push_back(L"-denorm preserve");
