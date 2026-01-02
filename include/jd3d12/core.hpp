@@ -66,7 +66,7 @@ public:
     */
     size_t GetElementSize() const noexcept;
     /// Returns `ID3D12Resource*`.
-    void* GetResource() const noexcept;
+    void* GetNativeResource() const noexcept;
 
 private:
     BufferImpl* impl_ = nullptr;

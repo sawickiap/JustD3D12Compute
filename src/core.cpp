@@ -71,7 +71,7 @@ public:
     Format GetElementFormat() const noexcept { return desc_.element_format; }
     size_t GetStructureSize() const noexcept { return desc_.structure_size; }
     size_t GetElementSize() const noexcept;
-    ID3D12Resource* GetResource() const noexcept { return resource_; }
+    ID3D12Resource* GetNativeResource() const noexcept { return resource_; }
 
 private:
     Buffer* const interface_obj_;
@@ -1113,7 +1113,7 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
         StackOrHeapVector<D3D12_WRITEBUFFERIMMEDIATE_PARAMETER, 8> params;
         {
             const uint32_t* src_data_u32 = reinterpret_cast<const uint32_t*>(src_data.data);
-            D3D12_GPU_VIRTUAL_ADDRESS dst_gpu_address = dst_buf.GetResource()->GetGPUVirtualAddress();
+            D3D12_GPU_VIRTUAL_ADDRESS dst_gpu_address = dst_buf.GetNativeResource()->GetGPUVirtualAddress();
             for(uint32_t param_index = 0; param_index < param_count
                 ; ++param_index, ++src_data_u32, dst_gpu_address += sizeof(uint32_t))
             {
@@ -1159,7 +1159,7 @@ Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
     RETURN_IF_FAILED(UseBuffer(src_buf, D3D12_RESOURCE_STATE_COPY_SOURCE));
     RETURN_IF_FAILED(UseBuffer(dst_buf, D3D12_RESOURCE_STATE_COPY_DEST));
 
-    command_list_->CopyResource(dst_buf.GetResource(), src_buf.GetResource());
+    command_list_->CopyResource(dst_buf.GetNativeResource(), src_buf.GetNativeResource());
 
     return kOK;
 }
@@ -1182,8 +1182,8 @@ Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, B
     RETURN_IF_FAILED(UseBuffer(src_buf, D3D12_RESOURCE_STATE_COPY_SOURCE));
     RETURN_IF_FAILED(UseBuffer(dst_buf, D3D12_RESOURCE_STATE_COPY_DEST));
 
-    command_list_->CopyBufferRegion(dst_buf.GetResource(), dst_byte_offset,
-        src_buf.GetResource(), src_byte_range.first, src_byte_range.count);
+    command_list_->CopyBufferRegion(dst_buf.GetNativeResource(), dst_byte_offset,
+        src_buf.GetNativeResource(), src_byte_range.first, src_byte_range.count);
 
     return kOK;
 }
@@ -1208,7 +1208,7 @@ Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& valu
     command_list_->ClearUnorderedAccessViewUint(
         shader_visible_gpu_desc_handle, // ViewGPUHandleInCurrentHeap
         shader_invisible_cpu_desc_handle, // ViewCPUHandle
-        buf.GetResource(), // pResource
+        buf.GetNativeResource(), // pResource
         &values.x, // Values
         0, // NumRects
         nullptr); // pRects
@@ -1236,7 +1236,7 @@ Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& va
     command_list_->ClearUnorderedAccessViewFloat(
         shader_visible_gpu_desc_handle, // ViewGPUHandleInCurrentHeap
         shader_invisible_cpu_desc_handle, // ViewCPUHandle
-        buf.GetResource(), // pResource
+        buf.GetNativeResource(), // pResource
         &values.x, // Values
         0, // NumRects
         nullptr); // pRects
@@ -1570,7 +1570,7 @@ Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrier.Transition.pResource = buf.GetResource();
+            barrier.Transition.pResource = buf.GetNativeResource();
             barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             barrier.Transition.StateBefore = it->second.last_state;
             barrier.Transition.StateAfter = state;
@@ -1583,7 +1583,7 @@ Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrier.UAV.pResource = buf.GetResource();
+            barrier.UAV.pResource = buf.GetNativeResource();
             command_list_->ResourceBarrier(1, &barrier);
         }
     }
@@ -1616,7 +1616,7 @@ Result DeviceImpl::UpdateRootArguments()
                 RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
 
                 D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
-                cbv_desc.BufferLocation = binding.buffer->GetResource()->GetGPUVirtualAddress()
+                cbv_desc.BufferLocation = binding.buffer->GetNativeResource()->GetGPUVirtualAddress()
                     + binding.byte_range.first;
                 const size_t final_size = binding.byte_range.count;
                 assert(final_size <= UINT32_MAX);
@@ -1704,7 +1704,7 @@ Result DeviceImpl::UpdateRootArguments()
                 default:
                     assert(0);
                 }
-                device_->CreateShaderResourceView(binding.buffer->GetResource(), &srv_desc,
+                device_->CreateShaderResourceView(binding.buffer->GetNativeResource(), &srv_desc,
                     shader_visible_descriptor_heap_.GetCpuHandleForDescriptor(binding.descriptor_index));
             }
 
@@ -1785,7 +1785,7 @@ Result DeviceImpl::UpdateRootArguments()
                 default:
                     assert(0);
                 }
-                device_->CreateUnorderedAccessView(binding.buffer->GetResource(), nullptr, &uav_desc,
+                device_->CreateUnorderedAccessView(binding.buffer->GetNativeResource(), nullptr, &uav_desc,
                     shader_visible_descriptor_heap_.GetCpuHandleForDescriptor(binding.descriptor_index));
             }
 
@@ -1931,7 +1931,7 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
     out_shader_invisible_cpu_desc_handle =
         shader_invisible_descriptor_heap_.GetCpuHandleForDescriptor(shader_invisible_desc_index);
 
-    ID3D12Resource* const d3d12_res = buf.GetResource();
+    ID3D12Resource* const d3d12_res = buf.GetNativeResource();
     assert(d3d12_res != nullptr);
     device_->CreateUnorderedAccessView(d3d12_res, nullptr, &uav_desc, shader_visible_cpu_desc_handle);
     device_->CreateUnorderedAccessView(d3d12_res, nullptr, &uav_desc, out_shader_invisible_cpu_desc_handle);
@@ -2116,10 +2116,10 @@ size_t Buffer::GetElementSize() const noexcept
     return impl_->GetElementSize();
 }
 
-void* Buffer::GetResource() const noexcept
+void* Buffer::GetNativeResource() const noexcept
 {
     assert(impl_ != nullptr);
-    return impl_->GetResource();
+    return impl_->GetNativeResource();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
