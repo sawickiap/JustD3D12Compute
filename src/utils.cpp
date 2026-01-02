@@ -1,4 +1,13 @@
+// Copyright (c) 2025 Adam Sawicki
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, subject to the terms of the MIT License.
+//
+// See the LICENSE file in the project root for full license text.
+
 #include <jd3d12/utils.hpp>
+#include <jd3d12/config.hpp>
 #include "internal_utils.hpp"
 
 namespace jd3d12
@@ -220,7 +229,32 @@ constexpr FormatDescRecord kFormatDescRecords[] = {
     { L"A4B4G4R4_Unorm", Format::kUnknown, 16, 4, 4, 0 } },
 };
 
+inline bool IsCharAlpha(wchar_t ch)
+{
+    return (ch >= L'A') && (ch <= L'Z')
+        || (ch >= L'a') && (ch <= L'z')
+        || (ch == L'_');
+}
+inline bool IsCharAlphaNumeric(wchar_t ch)
+{
+    return IsCharAlpha(ch) || (ch >= '0' && ch <= '9');
+}
+
 } // anonymous namespace
+
+bool IsHlslIdentifier(const wchar_t* s)
+{
+    if(IsStringEmpty(s))
+        return false;
+    if(!IsCharAlpha(s[0]))
+        return false;
+    for(size_t i = 1, len = wcslen(s); i < len; ++i)
+    {
+        if(!IsCharAlphaNumeric(s[i]))
+            return false;
+    }
+    return true;
+}
 
 Result MakeResultFromLastError()
 {
@@ -234,7 +268,6 @@ const wchar_t* GetResultString(Result res)
     case kSuccess: return L"Success";
     case kFalse: return L"False";
     case kNotReady: return L"Not ready";
-    case kTimeout: return L"Timeout";
     case kIncomplete: return L"Incomplete";
     case kErrorTooManyObjects: return L"Too many objects";
     case kErrorUnexpected: return L"Unexpected error";
@@ -299,7 +332,7 @@ const FormatDesc* GetFormatDesc(Format format)
     if(format <= kLastLinearIndexFormat)
     {
         const size_t index = size_t(format);
-        assert(kFormatDescRecords[index].format == format);
+        JD3D12_ASSERT(kFormatDescRecords[index].format == format);
         return &kFormatDescRecords[index].desc;
     }
 

@@ -1,3 +1,11 @@
+// Copyright (c) 2025 Adam Sawicki
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, subject to the terms of the MIT License.
+//
+// See the LICENSE file in the project root for full license text.
+
 #pragma once
 
 #include <jd3d12/utils.hpp>
@@ -8,13 +16,12 @@ namespace jd3d12
 
 class BufferImpl;
 class ShaderImpl;
+class ShaderCompilationResultImpl;
 class DeviceImpl;
 class EnvironmentImpl;
 
 class Device;
 class Environment;
-
-Result CreateEnvironment(Environment*& out_env);
 
 enum BufferFlags : uint32_t
 {
@@ -101,6 +108,165 @@ private:
     JD3D12_NO_COPY_NO_MOVE_CLASS(Shader)
 };
 
+enum ShaderCompilationFlags
+{
+    /// Passed to DXC as `-denorm preserve`.
+    kShaderCompilationFlagDenormPreserve = 0x00000001u,
+    /// Passed to DXC as `-denorm ftz`.
+    kShaderCompilationFlagDenormFlushToZero = 0x00000002u,
+    /// Enables 16-bit types support. Passed to DXC as `-enable-16bit-types`.
+    kShaderCompilationFlagEnable16BitTypes = 0x00000004u,
+    /// Passed to DXC as `-Gfa`.
+    kShaderCompilationFlagAvoidFlowControl = 0x00000008u,
+    /// Passed to DXC as `-Gfp`.
+    kShaderCompilationFlagPreferFlowControl = 0x00000010u,
+    /// Force IEEE strictness. Passed to DXC as `-Gis`.
+    kShaderCompilationFlagEnableIeeeStrictness = 0x00000020u,
+    /// Passed to DXC as `-no-warnings`.
+    kShaderCompilationFlagSuppressWarnings = 0x00000040u,
+    /// Passed to DXC as `-WX`.
+    kShaderCompilationFlagTreatWarningsAsErrors = 0x00000080u,
+    /// Pack matrices in column-major order. Passed to DXC as `-Zpc`.
+    /// TODO Which one is the default?
+    kShaderCompilationFlagPackMatricesColumnMajor = 0x00000100u,
+    /// Pack matrices in row-major order. Passed to DXC as `-Zpr`.
+    kShaderCompilationFlagPackMatricesRowMajor = 0x00000200u,
+    /// Allow optimizations for floating-point arithmetic that assume that arguments and results are not NaNs or +-Infs.
+    /// Passed to DXC as `-ffinite-math-only`.
+    /// TODO Which one is the default?
+    kShaderCompilationFlagFiniteMathOnly = 0x00000400u,
+    /// Disallow optimizations for floating-point arithmetic that assume that arguments and results are not NaNs or +-Infs.
+    /// Passed to DXC as `-fno-finite-math-only`.
+    kShaderCompilationFlagNoFiniteMathOnly = 0x00000800u,
+};
+
+enum CharacterEncoding
+{
+    /// Treats string as encoded in ANSI (1-byte, `char` characters).
+    /// This value is equivalent to `CP_ACP` from WinAPI and `DXC_CP_ACP` from DXC.
+    kCharacterEncodingAnsi = 0,
+    /// Treats string as encoded in UTF-8.
+    /// This value is equivalent to `CP_UTF8` from WinAPI and `DXC_CP_UTF8` from DXC.
+    kCharacterEncodingUtf8 = 65001,
+    /// Treats string as encoded in UTF-16 (2-byte, `wchar_t` characters).
+    /// This value is equivalent to `DXC_CP_UTF16` from DXC.
+    kCharacterEncodingUtf16 = 1200,
+    /// Treats string as encoded in UTF-32.
+    /// This value is equivalent to `DXC_CP_UTF32` from DXC.
+    kCharacterEncodingUtf32 = 12000,
+};
+
+enum HlslVersion
+{
+    kHlslVersion2016 = 2016,
+    kHlslVersion2017 = 2017,
+    kHlslVersion2018 = 2018,
+    kHlslVersion2021 = 2021,
+};
+
+enum ShaderOptimizationLevel
+{
+    kShaderOptimizationDisabled = -1,
+    kShaderOptimizationLevel0 = 0,
+    kShaderOptimizationLevel1 = 1,
+    kShaderOptimizationLevel2 = 2,
+    kShaderOptimizationLevel3 = 3,
+};
+
+enum ShaderModel
+{
+    kShaderModel6_0 = 0x0600,
+    kShaderModel6_1 = 0x0601,
+    kShaderModel6_2 = 0x0602,
+    kShaderModel6_3 = 0x0603,
+    kShaderModel6_4 = 0x0604,
+    kShaderModel6_5 = 0x0605,
+    kShaderModel6_6 = 0x0606,
+    kShaderModel6_7 = 0x0607,
+    kShaderModel6_8 = 0x0608,
+    kShaderModel6_9 = 0x0609,
+};
+
+struct ShaderCompilationParams
+{
+    /// Use #ShaderCompilationFlags.
+    uint32_t flags = 0;
+    /// Encoding of the source code characters.
+    CharacterEncoding character_encoding = kCharacterEncodingAnsi;
+    /** \brief Name of the main function within the HLSL code that should be the entry point of the shader.
+
+    Passed to DXC as `-E` parameter.
+    */
+    const wchar_t* entry_point = nullptr;
+    /** \brief HLSL language version. */
+    HlslVersion hlsl_version = kHlslVersion2021;
+    /** \brief Shader model version. */
+    ShaderModel shader_model = kShaderModel6_0;
+    /** \brief Optimization level. */
+    ShaderOptimizationLevel optimization_level = kShaderOptimizationLevel3;
+    /** \brief Array of null-terminated strings with HLSL preprocessor macros and their values to be predefined.
+
+    It must contain an even number of elements, where each odd element is a macro name, while each
+    even element is the value of this macro. The value can be null or empty.
+    For example, following 4-element array:
+
+    \code
+    { L"DEFINED_MACRO", nullptr, L"NUMERIC_MACRO", L"123" }
+    \endcode
+
+    Is a predefind equivalent of following macros in HLSL:
+
+    \code
+    #define DEFINED_MACRO
+    #define NUMERIC_MACRO 123
+    \endcode
+    */
+    ArraySpan<const wchar_t*> macro_defines = { nullptr, 0 };
+    /** \briefArray of null-terminated strings with additional arguments to be passed directly to DXC. */
+    ArraySpan<const wchar_t*> additional_dxc_args = { nullptr, 0 };
+};
+
+/** \brief Stores the result of a shader compilation from HLSL source code to bytecode.
+
+Successful creation of this object doesn't necessarily mean the compilation succeeded.
+In case of failed compilation, it stores error messages.
+Call GetResult() to check whether the compilation was successful.
+*/
+class ShaderCompilationResult
+{
+public:
+    ~ShaderCompilationResult();
+    ShaderCompilationResultImpl* GetImpl() const noexcept { return impl_; }
+    Environment* GetEnvironment() const noexcept;
+
+    /** \brief Returns the result of the shader compilation (#kOK in case of success).
+    */
+    Result GetResult();
+    /** \brief Returns compilation errors and warnings as a null-terminated string, possibly multi-line,
+    in UTF-8 encoding.
+
+    If there are no errors or warnings, an empty string is returned. It never returns null.
+
+    Returned memory is owned by this object. You shoudln't free it.
+    */
+    const char* GetErrorsAndWarnings();
+    /** \brief Returns the compiled shader bytecode.
+
+    If the compilation failed, an empty data span is returned with `data` = null.
+
+    Returned memory is owned by this object. You shoudln't free it.
+    */
+    ConstDataSpan GetBytecode();
+
+private:
+    ShaderCompilationResultImpl* impl_ = nullptr;
+
+    ShaderCompilationResult();
+
+    friend class EnvironmentImpl;
+    JD3D12_NO_COPY_NO_MOVE_CLASS(ShaderCompilationResult)
+};
+
 enum DeviceFlags
 {
     kDeviceFlagDisableGpuTimeout  = 0x1,
@@ -143,6 +309,22 @@ public:
         Shader*& out_shader);
     Result CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
         Shader*& out_shader);
+    /** \brief Compiles a compute shader from HLSL source code in memory and creates a #Shader object
+    ready to use on the GPU.
+
+    This function is a convenience helper. For more flexibility and better error reporting,
+    call Environment::CompileShaderFromMemory followed by Device::CreateShaderFromMemory.
+    */
+    Result CompileAndCreateShaderFromMemory(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, ConstDataSpan hlsl_source, Shader*& out_shader);
+    /** \brief Compiles a compute shader from HLSL source code loaded from a file and creates a #Shader object
+    ready to use on the GPU.
+
+    This function is a convenience helper. For more flexibility and better error reporting,
+    call Environment::CompileShaderFromFile followed by Device::CreateShaderFromMemory.
+    */
+    Result CompileAndCreateShaderFromFile(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, const wchar_t* hlsl_source_file_path, Shader*& out_shader);
 
     /** \brief Maps a buffer, returning a CPU pointer for reading or writing its data.
 
@@ -194,14 +376,14 @@ public:
 
     - When using Format::kR32G32B32A32_Uint, values are written as-is, as the type of `values` matches exactly.
     - If you specify `{1, 2, 3, 4}`, but the format has only 2 components, like Format::kR32G32_Uint,
-    only `{1, 2}` is written repeatedly.
+      only `{1, 2}` is written repeatedly.
     - Values `{0, 0, 0, 0}` are allowed with any format.
     - When using non-zero values, the format must be `Uint`, and the values cannot exceed the maximum for
-    that format, like `0xFF` for `8_Uint` or `0xFFFF` for `16_Uint`.
+      that format, like `0xFF` for `8_Uint` or `0xFFFF` for `16_Uint`.
     - `Sint` formats are also supported, but the values must be non-negative. For example, for `16_Sint`,
-    they must be between 0 and `0x7FFF`.
+      they must be between 0 and `0x7FFF`.
     - `32_Float` formats are also supported and the values are directly reinterpreted as 32-bit floats.
-    For example, `0x3F800000u` becomes 1.0.
+      For example, `0x3F800000u` becomes 1.0.
     - Byte address buffers are treated as typed buffers with Format::kR32_Uint, using only the first component.
     */
     Result ClearBufferToUintValues(Buffer& buf, const UintVec4& values, Range element_range = kFullRange);
@@ -213,12 +395,12 @@ public:
 
     - When using Format::kR32G32B32A32_Float, values are written as-is, as the type of `values` matches exactly.
     - If you specify `{1.0, 2.0, 3.0, 4.0}`, but the format has only 2 components, like Format::kR32G32_Float,
-    only `{1.0, 2.0}` is written repeatedly.
+      only `{1.0, 2.0}` is written repeatedly.
     - For half-float formats `16_Float`, values are correctly converted to half-floats.
     - For normalized formats `Unorm`, values are correctly mapped from range `0.0...1.0` to the full range of the
-    integer type. Values beyond `0.0...1.0` are clamped to the minimum/maximum.
+      integer type. Values beyond `0.0...1.0` are clamped to the minimum/maximum.
     - For normalized formats `Snorm`, values are correctly mapped from range `-1.0...1.0` to the correct range of the
-    integer type. Values beyond `-1.0...1.0` are clamped to the minimum/maximum.
+      integer type. Values beyond `-1.0...1.0` are clamped to the minimum/maximum.
     */
     Result ClearBufferToFloatValues(Buffer& buf, const FloatVec4& values, Range element_range = kFullRange);
 
@@ -260,6 +442,7 @@ protected:
     virtual Result Init() = 0;
 
     friend class DeviceImpl;
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShader)
 };
 
 /** \brief Helper class that represents a shader created automatically when #Device is created
@@ -297,6 +480,8 @@ protected:
 
 private:
     ConstDataSpan bytecode_ = {};
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderFromMemory)
 };
 
 /** \brief Helper class that represents a shader created automatically when #Device is created
@@ -332,6 +517,50 @@ protected:
 
 private:
     const wchar_t* bytecode_file_path_ = nullptr;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderFromFile)
+};
+
+class StaticShaderCompiledFromMemory : public StaticShader
+{
+public:
+    StaticShaderCompiledFromMemory();
+    StaticShaderCompiledFromMemory(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, ConstDataSpan hlsl_source);
+    ~StaticShaderCompiledFromMemory() override;
+    bool IsSet() const noexcept { return hlsl_source_.data != nullptr && hlsl_source_.size > 0; }
+    void Set(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, ConstDataSpan hlsl_source);
+
+protected:
+    Result Init() override;
+
+private:
+    ShaderCompilationParams compilation_params_ = {};
+    ConstDataSpan hlsl_source_ = {};
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderCompiledFromMemory)
+};
+
+class StaticShaderCompiledFromFile : public StaticShader
+{
+public:
+    StaticShaderCompiledFromFile();
+    StaticShaderCompiledFromFile(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, const wchar_t* hlsl_source_file_path);
+    ~StaticShaderCompiledFromFile() override;
+    bool IsSet() const noexcept;
+    void Set(const ShaderCompilationParams& compilation_params,
+        const ShaderDesc& desc, const wchar_t* hlsl_source_file_path);
+
+protected:
+    Result Init() override;
+
+private:
+    ShaderCompilationParams compilation_params_ = {};
+    const wchar_t* hlsl_source_file_path_ = nullptr;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticShaderCompiledFromFile)
 };
 
 class StaticBuffer
@@ -353,6 +582,7 @@ protected:
     virtual Result Init();
 
     friend class DeviceImpl;
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBuffer)
 };
 
 class StaticBufferFromMemory : public StaticBuffer
@@ -368,6 +598,8 @@ protected:
 
 private:
     ConstDataSpan initial_data_ = {};
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBufferFromMemory)
 };
 
 class StaticBufferFromFile : public StaticBuffer
@@ -383,6 +615,41 @@ protected:
 
 private:
     const wchar_t* initial_data_file_path_ = nullptr;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBufferFromFile)
+};
+
+struct EnvironmentDesc
+{
+    /** \brief Path to a directory, relative to the program executable (NOT the current working directory),
+    where .dll files from DirectX 12 Agility SDK will be placed.
+
+    You must ensure at least `D3D12Core.dll` is copied from the Agility SDK to this location as part
+    of your building process.
+
+    TODO `d3d12SDKLayers.dll` as well if you enable the Debug Layer?
+    TODO what about `D3D12StateObjectCompiler.dll`?
+
+    This string is `const char*` not `const wchar_t*` because that's how Microsoft defined function
+    `ID3D12SDKConfiguration1::CreateDeviceFactory` that accepts this path.
+    */
+    const char* d3d12_dll_path = ".\\D3D12\\";
+    /** \brief Path to a directory where .dll files from DirectX Shader Compiler (DXC) will be placed.
+
+    You must ensure at least `dxcompiler.dll` is copied from DXC to this location as part of your building process.
+
+    TODO `dxil.dll` as well?
+
+    The path is passed to `LoadLibrary` function, so if not absolute, it may search in the current
+    working directory first.
+    */
+    const wchar_t* dxc_dll_path = L".\\D3D12\\";
+    /** \brief Set to true if you are using a preview version of DirectX 12 Agility SDK.
+
+    This controls whether the library uses `D3D12_SDK_VERSION` or `D3D12_PREVIEW_SDK_VERSION` when
+    initializing D3D12.
+    */
+    bool is_d3d12_agility_sdk_preview = false;
 };
 
 class Environment
@@ -399,15 +666,46 @@ public:
     /// Returns `ID3D12DeviceFactory*`.
     void* GetNativeDeviceFactory() const noexcept;
 
+    /** \brief Creates the main #Device object, initializing selected GPU to prepare it for work.
+    */
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
+
+    /** \brief Compiles a compute shader from HLSL source code in memory to bytecode.
+
+    Note that this function returning #kOK doesn't necessarily mean the compilation succeeded.
+    It only means the shader compiler has been invoked and the `out_result` object has been created.
+    Inspect that object to check the compilation status (ShaderCompilationResult::GetResult),
+    obtain the compiled bytecode (ShaderCompilationResult::GetBytecode), if present, and/or
+    error/warning messages (ShaderCompilationResult::GetErrorsAndWarnings).
+
+    This operation is not connected to any particular #Device. Call Device::CreateShaderFromMemory
+    to create an actual shader from the bytecode.
+    */
+    Result CompileShaderFromMemory(const ShaderCompilationParams& params,
+        ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
+    /** \brief Compiles a compute shader from HLSL source code loaded from a file to bytecode.
+
+    Note that this function returning #kOK doesn't necessarily mean the compilation succeeded.
+    It only means the shader compiler has been invoked and the `out_result` object has been created.
+    Inspect that object to check the compilation status (ShaderCompilationResult::GetResult),
+    obtain the compiled bytecode (ShaderCompilationResult::GetBytecode), if present, and/or
+    error/warning messages (ShaderCompilationResult::GetErrorsAndWarnings).
+
+    This operation is not connected to any particular #Device. Call Device::CreateShaderFromMemory
+    to create an actual shader from the bytecode.
+    */
+    Result CompileShaderFromFile(const ShaderCompilationParams& params,
+        const wchar_t* hlsl_source_file_path, ShaderCompilationResult*& out_result);
 
 private:
     EnvironmentImpl* impl_ = nullptr;
 
     Environment();
 
-    friend Result jd3d12::CreateEnvironment(Environment*&);
+    friend Result CreateEnvironment(const EnvironmentDesc& desc, Environment*&);
     JD3D12_NO_COPY_NO_MOVE_CLASS(Environment)
 };
+
+Result CreateEnvironment(const EnvironmentDesc& desc, Environment*& out_env);
 
 } // namespace jd3d12

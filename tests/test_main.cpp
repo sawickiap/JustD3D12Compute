@@ -1,3 +1,11 @@
+// Copyright (c) 2025 Adam Sawicki
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, subject to the terms of the MIT License.
+//
+// See the LICENSE file in the project root for full license text.
+
 #include <jd3d12/jd3d12.hpp>
 
 #include <catch2/catch_test_macros.hpp>
@@ -22,6 +30,7 @@ using namespace jd3d12;
 namespace
 {
 
+/*
 StaticShaderFromFile typed_shader{
     ShaderDesc{ L"Typed shader" }, L"Test_Typed.dxil" };
 StaticShaderFromFile structured_shader{
@@ -30,6 +39,7 @@ StaticShaderFromFile byte_address_shader{
     ShaderDesc{ L"ByteAddress shader" }, L"Test_ByteAddress.dxil" };
 StaticShaderFromFile copy_squared_typed_shader{
     ShaderDesc{ L"copy_squared_typed" }, L"CopySquaredTyped.dxil" };
+*/
 
 constexpr size_t kMainBufSize = 10 * kMegabyte;
 
@@ -72,14 +82,15 @@ int main(int argc, char** argv)
     {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-        CHECK_OUTSIDE_TESTS(Succeeded(CreateEnvironment(g_env)));
+        EnvironmentDesc env_desc{};
+        CHECK_OUTSIDE_TESTS(Succeeded(CreateEnvironment(env_desc, g_env)));
         env.reset(g_env);
 
         DeviceDesc device_desc;
         device_desc.name = L"My device";
         CHECK_OUTSIDE_TESTS(Succeeded(env->CreateDevice(device_desc, g_dev)));
         dev.reset(g_dev);
-
+        
         {
             BufferDesc upload_buf_desc{};
             upload_buf_desc.name = L"My buffer UPLOAD";
@@ -238,8 +249,22 @@ TEST_CASE("Format description", "[utils][format]")
     CHECK(desc->is_simple == 1);
 }
 
-TEST_CASE("Typed buffer", "[gpu][buffer]")
+TEST_CASE("Typed buffer", "[gpu][buffer][hlsl]")
 {
+    std::unique_ptr<Shader> typed_shader;
+    {
+        ShaderCompilationParams compilation_params{};
+        compilation_params.entry_point = L"Main_Typed";
+
+        ShaderDesc shader_desc{};
+        shader_desc.name = L"Typed shader";
+
+        Shader* shader_ptr = nullptr;
+        REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
+            shader_desc, L"shaders/Test.hlsl", shader_ptr)));
+        typed_shader.reset(shader_ptr);
+    }
+
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
     default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferUsageFlagShaderRWResource
@@ -254,8 +279,7 @@ TEST_CASE("Typed buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*g_main_upload_buffer,
         Range{0, kMainBufSize}, *default_buffer, 0)));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(0, default_buffer.get())));
-    REQUIRE(typed_shader.GetShader() != nullptr);
-    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*typed_shader.GetShader(), { 8, 1, 1 })));
+    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*typed_shader, { 8, 1, 1 })));
     g_dev->ResetAllBindings();
 
     REQUIRE(g_main_readback_buffer != nullptr);
@@ -272,8 +296,22 @@ TEST_CASE("Typed buffer", "[gpu][buffer]")
     }
 }
 
-TEST_CASE("Structured buffer", "[gpu][buffer]")
+TEST_CASE("Structured buffer", "[gpu][buffer][hlsl]")
 {
+    std::unique_ptr<Shader> structured_shader;
+    {
+        ShaderCompilationParams compilation_params{};
+        compilation_params.entry_point = L"Main_Structured";
+
+        ShaderDesc shader_desc{};
+        shader_desc.name = L"Structured shader";
+
+        Shader* shader_ptr = nullptr;
+        REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
+            shader_desc, L"shaders/Test.hlsl", shader_ptr)));
+        structured_shader.reset(shader_ptr);
+    }
+
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
     default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferFlagStructured
@@ -288,8 +326,7 @@ TEST_CASE("Structured buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*g_main_upload_buffer,
         Range{0, kMainBufSize}, *default_buffer, 0)));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(1, default_buffer.get())));
-    REQUIRE(structured_shader.GetShader() != nullptr);
-    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*structured_shader.GetShader(), { 8, 1, 1 })));
+    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*structured_shader, { 8, 1, 1 })));
     g_dev->ResetAllBindings();
     REQUIRE(g_main_readback_buffer != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *g_main_readback_buffer)));
@@ -304,8 +341,22 @@ TEST_CASE("Structured buffer", "[gpu][buffer]")
     }
 }
 
-TEST_CASE("ByteAddress buffer", "[gpu][buffer]")
+TEST_CASE("ByteAddress buffer", "[gpu][buffer][hlsl]")
 {
+    std::unique_ptr<Shader> byte_address_shader;
+    {
+        ShaderCompilationParams compilation_params{};
+        compilation_params.entry_point = L"Main_ByteAddress";
+
+        ShaderDesc shader_desc{};
+        shader_desc.name = L"ByteAddress shader";
+
+        Shader* shader_ptr = nullptr;
+        REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
+            shader_desc, L"shaders/Test.hlsl", shader_ptr)));
+        byte_address_shader.reset(shader_ptr);
+    }
+
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
     default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagCopyDst | kBufferFlagByteAddress
@@ -323,8 +374,7 @@ TEST_CASE("ByteAddress buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*g_main_upload_buffer,
         Range{0, kMainBufSize}, *default_buffer, 0)));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(2, default_buffer.get())));
-    REQUIRE(byte_address_shader.GetShader() != nullptr);
-    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*byte_address_shader.GetShader(), { 8, 1, 1 })));
+    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*byte_address_shader, { 8, 1, 1 })));
     g_dev->ResetAllBindings();
     REQUIRE(g_main_readback_buffer != nullptr);
     REQUIRE(Succeeded(g_dev->CopyBuffer(*default_buffer, *g_main_readback_buffer)));
@@ -345,7 +395,7 @@ TEST_CASE("ClearBufferToUintValues", "[gpu][buffer][clear]")
     typed_buf_desc.name = L"My buffer Typed";
     typed_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferUsageFlagShaderRWResource | kBufferFlagTyped;
     typed_buf_desc.size = 256;
-    typed_buf_desc.element_format = Format::kR16G16B16A16_Snorm;
+    typed_buf_desc.element_format = Format::kR16G16B16A16_Sint;
     Buffer* buffer_ptr = nullptr;
     REQUIRE(Succeeded(g_dev->CreateBuffer(typed_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> typed_buffer{ buffer_ptr };
@@ -412,8 +462,22 @@ TEST_CASE("ClearBufferToFloatValues", "[gpu][buffer][clear]")
 }
 
 // Using UPLOAD buffer as both copy source and GPU read, to check if barriers are done correctly.
-TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer]")
+TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer][hlsl]")
 {
+    std::unique_ptr<Shader> copy_squared_typed_shader;
+    {
+        ShaderCompilationParams compilation_params{};
+        compilation_params.entry_point = L"Main";
+
+        ShaderDesc shader_desc{};
+        shader_desc.name = L"ByteAddress shader";
+
+        Shader* shader_ptr = nullptr;
+        REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
+            shader_desc, L"shaders/CopySquaredTyped.hlsl", shader_ptr)));
+        copy_squared_typed_shader.reset(shader_ptr);
+    }
+
     constexpr size_t kSectionCount = 8;
     constexpr size_t kNumbersPerSection = 1024;
     constexpr size_t kSectionSize = kNumbersPerSection * sizeof(float);
@@ -459,7 +523,6 @@ TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer]")
     // 3. Copy region [2...7)
     // 4. Process region [3...8) using a shader.
 
-    REQUIRE(copy_squared_typed_shader.GetShader());
     constexpr UintVec3 group_count = {5 * kNumbersPerSection, 1, 1};
 
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*my_upload_buffer, Range{0 * kSectionSize, 5 * kSectionSize},
@@ -467,14 +530,14 @@ TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer]")
 
     REQUIRE(Succeeded(g_dev->BindBuffer(0, my_upload_buffer.get(), Range{1 * kSectionSize, 5 * kSectionSize})));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(0, my_default_buffer.get(), Range{1 * kSectionSize, 5 * kSectionSize})));
-    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*copy_squared_typed_shader.GetShader(), group_count)));
+    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*copy_squared_typed_shader, group_count)));
 
     REQUIRE(Succeeded(g_dev->CopyBufferRegion(*my_upload_buffer, Range{2 * kSectionSize, 5 * kSectionSize},
         *my_default_buffer, 2 * kSectionSize)));
 
     REQUIRE(Succeeded(g_dev->BindBuffer(0, my_upload_buffer.get(), Range{3 * kSectionSize, 5 * kSectionSize})));
     REQUIRE(Succeeded(g_dev->BindRWBuffer(0, my_default_buffer.get(), Range{3 * kSectionSize, 5 * kSectionSize})));
-    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*copy_squared_typed_shader.GetShader(), group_count)));
+    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*copy_squared_typed_shader, group_count)));
 
     g_dev->ResetAllBindings();
 
@@ -624,6 +687,21 @@ TEST_CASE("Mapping of a sub-range", "[gpu][buffer]")
 
 TEST_CASE("Constant buffer", "[gpu][buffer]")
 {
+    std::unique_ptr<Shader> shader;
+    {
+        ShaderCompilationParams compilation_params{};
+        compilation_params.character_encoding = kCharacterEncodingUtf16;
+        compilation_params.entry_point = L"Main";
+
+        ShaderDesc shader_desc{};
+        shader_desc.name = L"Constant buffer shader";
+
+        Shader* shader_ptr = nullptr;
+        REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
+            shader_desc, L"shaders/constant_buffer.hlsl", shader_ptr)));
+        shader.reset(shader_ptr);
+    }
+
     struct MyConstants
     {
         FloatVec4 floats;
@@ -654,11 +732,6 @@ TEST_CASE("Constant buffer", "[gpu][buffer]")
     };
     REQUIRE(Succeeded(g_dev->CreateBuffer(struct_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> struct_buf{buffer_ptr};
-
-    Shader* shader_ptr = nullptr;
-    REQUIRE(Succeeded(g_dev->CreateShaderFromFile(ShaderDesc{ L"constant_buffer" },
-        L"constant_buffer.dxil", shader_ptr)));
-    std::unique_ptr<Shader> shader{ shader_ptr };
 
     // Bind the buffers and dispatch the shader.
     REQUIRE(Succeeded(g_dev->BindConstantBuffer(0, const_buf.get())));
@@ -699,4 +772,56 @@ TEST_CASE("WriteMemoryToBuffer with a GPU read-write buffer", "[gpu][buffer]")
     REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
         Range{0, buf_desc.size}, dst_data.data())));
     CHECK(memcmp(dst_data.data(), src_data.data(), buf_desc.size) == 0);
+}
+
+TEST_CASE("Shader compilation params", "[gpu][buffer][hlsl]")
+{
+    std::unique_ptr<Shader> shader;
+    {
+        const wchar_t* macros[] = { L"ENABLING_MACRO", L"4" };
+
+        ShaderCompilationParams compilation_params{};
+        compilation_params.flags = kShaderCompilationFlagEnableIeeeStrictness
+            //| kShaderCompilationFlagAvoidFlowControl // Doesn't work, I don't know why.
+            //| kShaderCompilationFlagDenormPreserve // Doesn't work, I don't know why.
+            | kShaderCompilationFlagNoFiniteMathOnly
+            | kShaderCompilationFlagTreatWarningsAsErrors;
+        compilation_params.entry_point = L"Main_Conditional";
+        compilation_params.optimization_level = kShaderOptimizationDisabled;
+        compilation_params.shader_model = kShaderModel6_1;
+        compilation_params.macro_defines = { macros, _countof(macros) };
+
+        ShaderDesc shader_desc{};
+        shader_desc.name = L"Main_Conditional shader";
+
+        Shader* shader_ptr = nullptr;
+        REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
+            shader_desc, L"shaders/Test.hlsl", shader_ptr)));
+        shader.reset(shader_ptr);
+    }
+
+    BufferDesc default_buf_desc{};
+    default_buf_desc.name = L"My buffer DEFAULT";
+    default_buf_desc.flags = kBufferUsageFlagCopySrc | kBufferFlagByteAddress
+        | kBufferUsageFlagShaderRWResource;
+    default_buf_desc.size = 32 * sizeof(uint32_t);
+
+    Buffer* buffer_ptr = nullptr;
+    REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
+    std::unique_ptr<Buffer> default_buffer{ buffer_ptr };
+
+    REQUIRE(Succeeded(g_dev->BindRWBuffer(2, default_buffer.get())));
+    // (1, 1, 1) group of (32, 1, 1) threads = 32 uint32_t values to fill.
+    REQUIRE(Succeeded(g_dev->DispatchComputeShader(*shader, { 1, 1, 1 })));
+    g_dev->ResetAllBindings();
+    REQUIRE(g_main_readback_buffer != nullptr);
+    REQUIRE(Succeeded(g_dev->CopyBufferRegion(*default_buffer, Range{ 0, default_buf_desc.size },
+        *g_main_readback_buffer, 0)));
+
+    std::array<uint32_t, 32> dst_data, expected_data;
+    REQUIRE(Succeeded(g_dev->ReadBufferToMemory(*g_main_readback_buffer,
+        Range{ 0, default_buf_desc.size }, dst_data.data())));
+    for(uint32_t i = 0; i < 32; ++i)
+        expected_data[i] = i * i + 1;
+    CHECK(memcmp(dst_data.data(), expected_data.data(), default_buf_desc.size) == 0);
 }

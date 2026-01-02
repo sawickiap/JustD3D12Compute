@@ -1,3 +1,11 @@
+// Copyright (c) 2025 Adam Sawicki
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, subject to the terms of the MIT License.
+//
+// See the LICENSE file in the project root for full license text.
+
 #pragma once
 
 #define WIN32_LEAN_AND_MEAN
@@ -11,26 +19,25 @@
 #include <Windows.h>
 #include <atlbase.h>
 
-#include "f:\Libraries\_Microsoft\dxc_2025_07_14\inc\dxcapi.h"
-#include "f:\Libraries\_Microsoft\dxc_2025_07_14\inc\d3d12shader.h"
+#include <dxcapi.h>
+#include <d3d12shader.h>
 
 #include <array>
 #include <vector>
 #include <string>
-#include <map>
-#include <set>
+#include <unordered_set>
+#include <unordered_map>
 #include <algorithm>
 #include <memory>
 #include <atomic>
 #include <iterator>
 #include <type_traits>
+#include <filesystem>
 
-#include <cassert>
 #include <cstdint>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <cstddef>
-
-#define CHECK_HR(expr) do { HRESULT hr__ = (expr); if(hr__ != S_OK) __debugbreak(); } while(false)
+#include <cstdarg>

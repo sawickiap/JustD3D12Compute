@@ -1,3 +1,11 @@
+// Copyright (c) 2025 Adam Sawicki
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, subject to the terms of the MIT License.
+//
+// See the LICENSE file in the project root for full license text.
+
 #pragma once
 
 #include <jd3d12/types.hpp>
@@ -5,20 +13,14 @@
 namespace jd3d12
 {
 
-#define RETURN_IF_FAILED(expr) \
-    do { \
-        const HRESULT hr__ = (expr); \
-        if(FAILED(hr__)) return hr__; \
-    } while(false)
-
-#define ASSERT_OR_RETURN(expr, message) \
-    do { \
-        const bool ok__ = (expr); \
-        assert(ok__ && message); \
-        if(!ok__) return kErrorInvalidArgument; \
-    } while(false)
-
+inline bool IsStringEmpty(const char* s) { return s == nullptr || s[0] == '\0'; }
 inline bool IsStringEmpty(const wchar_t* s) { return s == nullptr || s[0] == L'\0'; }
+
+/** \brief Returns true if the string is a valid identifier in HLSL language, suitable to be a function
+name or a macro name - starts with a character `[A-Za-z_]` with next characters `[A-Za-z0-9_]`,
+like `"MainShader"`, `"main_shader_123"`.
+*/
+bool IsHlslIdentifier(const wchar_t* s);
 
 // Compatible with HRESULT.
 typedef int32_t Result;
@@ -45,12 +47,11 @@ enum ResultCode : int32_t
     /// Used to indicate that no work was done, e.g. after issuing a copy command with size=0.
     kFalse                          = 1,
     /// Returned when #kCommandFlagDontWait was used and the command didn't execute because
-    /// the device wasn't ready.
-    kNotReady                       = int32_t(kCustomResultBase | 0x1),
-    /// Returned when `timeout` was used other than #kTimeoutInfinite and the time has passed
+    /// it would need to wait long time.
+    /// Also returned when timeout was used other than #kTimeoutInfinite and the time has passed
     /// before the operation completed.
-    kTimeout                        = int32_t(kCustomResultBase | 0x2),
-    kIncomplete                     = int32_t(kCustomResultBase | 0x3),
+    kNotReady                       = int32_t(kCustomResultBase | 0x1),
+    kIncomplete                     = int32_t(kCustomResultBase | 0x2),
     kErrorTooManyObjects            = int32_t(kCustomErrorBase | 0x1),
     kErrorUnexpected                = int32_t(0x8000FFFFu),
     kErrorNotImplemented            = int32_t(0x80004001u),
@@ -240,6 +241,11 @@ struct FormatDesc
     unsigned is_simple : 1;
 };
 
+/** \brief Returns last error returned by a WinAPI function, converted to correct #Result.
+
+Use it after calling a WinAPI function that declares its error state can be fetched using
+`GetLastError` function.
+*/
 Result MakeResultFromLastError();
 
 /** \brief Returns string representation of the given Result code.
@@ -284,6 +290,16 @@ struct DataSpan
     bool operator==(const DataSpan& rhs) const noexcept { return data == rhs.data && size == rhs.size; }
     bool operator!=(const DataSpan& rhs) const noexcept { return data != rhs.data || size != rhs.size; }
     operator ConstDataSpan() const noexcept { return ConstDataSpan{ data, size }; }
+};
+constexpr DataSpan kEmptyDataSpan = { nullptr, 0 };
+
+template<typename T>
+struct ArraySpan
+{
+    T* data;
+    size_t count;
+    bool operator==(const ArraySpan<T>& rhs) const noexcept { return data == rhs.data && count == rhs.count; }
+    bool operator!=(const ArraySpan<T>& rhs) const noexcept { return data != rhs.data || count != rhs.count; }
 };
 
 // If range.end == SIZE_MAX, limits it to real_size.
