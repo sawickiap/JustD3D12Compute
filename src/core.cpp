@@ -512,7 +512,7 @@ Result BufferImpl::InitParameters(size_t initial_data_size)
         strategy_ = BufferStrategy::kDefault;
     }
 
-    return kOK;
+    return kSuccess;
 }
 
 D3D12_RESOURCE_STATES BufferImpl::GetInitialState(D3D12_HEAP_TYPE heap_type)
@@ -626,7 +626,7 @@ Result BufferImpl::Init(ConstDataSpan initial_data)
 
     RETURN_IF_FAILED(WriteInitialData(initial_data));
 
-    return kOK;
+    return kSuccess;
 }
 
 Result BufferImpl::WriteInitialData(ConstDataSpan initial_data)
@@ -640,7 +640,7 @@ Result BufferImpl::WriteInitialData(ConstDataSpan initial_data)
     assert(persistently_mapped_ptr_ != nullptr);
     memcpy(persistently_mapped_ptr_, initial_data.data, initial_data.size);
 
-    return kOK;
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -675,7 +675,7 @@ Result ShaderImpl::Init(ConstDataSpan bytecode)
     SetObjectName(pipeline_state_, desc_.name);
     desc_.name = nullptr;
 
-    return kOK;
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -704,7 +704,7 @@ Result DescriptorHeap::Init(const wchar_t* device_name)
         gpu_handle_ = descriptor_heap_->GetGPUDescriptorHandleForHeapStart();
     cpu_handle_ = descriptor_heap_->GetCPUDescriptorHandleForHeapStart();
 
-    return kOK;
+    return kSuccess;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE DescriptorHeap::GetGpuHandleForDescriptor(uint32_t index) const noexcept
@@ -731,7 +731,7 @@ HRESULT DescriptorHeap::AllocateDynamic(uint32_t& out_index)
     if(next_dynamic_descriptor_index_ == kMaxDescriptorCount)
         return kErrorTooManyObjects;
     out_index = next_dynamic_descriptor_index_++;
-    return kOK;
+    return kSuccess;
 }
 
 void DescriptorHeap::ClearDynamic()
@@ -820,7 +820,7 @@ Result MainRootSignature::Init()
         root_sig_blob->GetBufferSize(), IID_PPV_ARGS(&root_signature_)));
     SetObjectName(root_signature_, L"Main root signature");
 
-    return kOK;
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -929,7 +929,7 @@ Result DeviceImpl::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan 
     RETURN_IF_FAILED(buf->GetImpl()->Init(initial_data));
 
     out_buffer = buf.release();
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::CreateBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path,
@@ -958,7 +958,7 @@ Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan 
     RETURN_IF_FAILED(shader->GetImpl()->Init(bytecode));
 
     out_shader = shader.release();
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
@@ -1005,14 +1005,14 @@ Result DeviceImpl::MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_
     {
         const uint32_t timeout = (command_flags & kCommandFlagDontWait) ? 0 : kTimeoutInfinite;
         const Result res = EnsureCommandListState(CommandListState::kNone, timeout);
-        if(res != kOK)
+        if(res != kSuccess)
             return res;
     }
 
     buf.is_user_mapped_ = true;
 
     out_data_ptr = (char*)buf.persistently_mapped_ptr_ + byte_range.first;
-    return kOK;
+    return kSuccess;
 }
 
 void DeviceImpl::UnmapBuffer(BufferImpl& buf)
@@ -1055,7 +1055,7 @@ Result DeviceImpl::ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range,
         return hr;
     memcpy(dst_memory, (char*)mapped_ptr, src_byte_range.count);
     UnmapBuffer(src_buf);
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_buf, size_t dst_byte_offset,
@@ -1082,7 +1082,7 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
         {
             const uint32_t timeout = (command_flags & kCommandFlagDontWait) ? 0 : kTimeoutInfinite;
             const Result res = EnsureCommandListState(CommandListState::kNone, timeout);
-            if(res != kOK)
+            if(res != kSuccess)
                 return res;
         }
 
@@ -1093,7 +1093,7 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
             return hr;
         memcpy((char*)mapped_ptr, src_data.data, src_data.size);
         UnmapBuffer(dst_buf);
-        return kOK;
+        return kSuccess;
     }
     else if(dst_buf.strategy_ == BufferStrategy::kDefault)
     {
@@ -1104,7 +1104,7 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
 
         const uint32_t timeout = (command_flags & kCommandFlagDontWait) ? 0 : kTimeoutInfinite;
         const Result res = EnsureCommandListState(CommandListState::kRecording, timeout);
-        if(res != kOK)
+        if(res != kSuccess)
             return res;
 
         RETURN_IF_FAILED(UseBuffer(dst_buf, D3D12_RESOURCE_STATE_COPY_DEST));
@@ -1121,7 +1121,7 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
             }
             command_list_->WriteBufferImmediate(param_count, params.GetData(), nullptr);
         }
-        return kOK;
+        return kSuccess;
     }
     else
     {
@@ -1134,13 +1134,13 @@ Result DeviceImpl::SubmitPendingCommands()
 {
     if(command_list_state_ == CommandListState::kRecording)
         RETURN_IF_FAILED(ExecuteRecordedCommands());
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::WaitForGPU(uint32_t timeout_milliseconds)
 {
     RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kNone, timeout_milliseconds));
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
@@ -1161,7 +1161,7 @@ Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
 
     command_list_->CopyResource(dst_buf.GetNativeResource(), src_buf.GetNativeResource());
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, BufferImpl& dst_buf, size_t dst_byte_offset)
@@ -1185,7 +1185,7 @@ Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, B
     command_list_->CopyBufferRegion(dst_buf.GetNativeResource(), dst_byte_offset,
         src_buf.GetNativeResource(), src_byte_range.first, src_byte_range.count);
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& values, Range element_range)
@@ -1213,7 +1213,7 @@ Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& valu
         0, // NumRects
         nullptr); // pRects
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& values, Range element_range)
@@ -1241,7 +1241,7 @@ Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& va
         0, // NumRects
         nullptr); // pRects
 
-    return kOK;
+    return kSuccess;
 }
 
 void DeviceImpl::ResetAllBindings()
@@ -1280,7 +1280,7 @@ Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range by
     if(buf == nullptr)
     {
         *binding = Binding{};
-        return kOK;
+        return kSuccess;
     }
 
     size_t alignment = buf->GetElementSize();
@@ -1300,7 +1300,7 @@ Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range by
     binding->byte_range = byte_range;
     binding->descriptor_index = UINT32_MAX;
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range)
@@ -1319,7 +1319,7 @@ Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range
     if(buf == nullptr)
     {
         *binding = Binding{};
-        return kOK;
+        return kSuccess;
     }
 
     const uint32_t type_bit_count = CountBitsSet(buf->desc_.flags
@@ -1344,7 +1344,7 @@ Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range
     binding->byte_range = byte_range;
     binding->descriptor_index = UINT32_MAX;
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_range)
@@ -1363,7 +1363,7 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
     if(buf == nullptr)
     {
         *binding = Binding{};
-        return kOK;
+        return kSuccess;
     }
 
     const uint32_t type_bit_count = CountBitsSet(buf->desc_.flags
@@ -1387,7 +1387,7 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
     binding->byte_range = byte_range;
     binding->descriptor_index = UINT32_MAX;
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::Init()
@@ -1435,7 +1435,7 @@ Result DeviceImpl::Init()
     RETURN_IF_FAILED(CreateStaticShaders());
 
     desc_.name = nullptr;
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::ExecuteRecordedCommands()
@@ -1452,7 +1452,7 @@ Result DeviceImpl::ExecuteRecordedCommands()
 
     command_list_state_ = CommandListState::kExecuting;
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::WaitForCommandExecution(uint32_t timeout_milliseconds)
@@ -1479,7 +1479,7 @@ Result DeviceImpl::WaitForCommandExecution(uint32_t timeout_milliseconds)
     resource_usage_map_.map_.clear();
     shader_usage_set_.clear();
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::ResetCommandListForRecording()
@@ -1495,24 +1495,24 @@ Result DeviceImpl::ResetCommandListForRecording()
 
     command_list_state_ = CommandListState::kRecording;
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::EnsureCommandListState(CommandListState desired_state, uint32_t timeout_milliseconds)
 {
     if(desired_state == command_list_state_)
-        return kOK;
+        return kSuccess;
     if(command_list_state_ == CommandListState::kRecording)
         RETURN_IF_FAILED(ExecuteRecordedCommands());
     if(desired_state == command_list_state_)
-        return kOK;
+        return kSuccess;
     if(command_list_state_ == CommandListState::kExecuting)
         RETURN_IF_FAILED(WaitForCommandExecution(timeout_milliseconds));
     if(desired_state == command_list_state_)
-        return kOK;
+        return kSuccess;
     if(command_list_state_ == CommandListState::kNone)
         RETURN_IF_FAILED(ResetCommandListForRecording());
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::WaitForBufferUnused(BufferImpl* buf)
@@ -1521,14 +1521,14 @@ Result DeviceImpl::WaitForBufferUnused(BufferImpl* buf)
 
     if(resource_usage_map_.map_.find(buf) != resource_usage_map_.map_.end())
         return EnsureCommandListState(CommandListState::kNone);
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::WaitForShaderUnused(ShaderImpl* shader)
 {
     if(shader_usage_set_.find(shader) != shader_usage_set_.end())
         return EnsureCommandListState(CommandListState::kNone);
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
@@ -1558,7 +1558,7 @@ Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
     if(it == resource_usage_map_.map_.end())
     {
         resource_usage_map_.map_.emplace(&buf, ResourceUsage{usage_flags, state});
-        return kOK;
+        return kSuccess;
     }
 
     // Use barriers only in DEAFULT heap type.
@@ -1591,7 +1591,7 @@ Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
     it->second.flags |= usage_flags;
     it->second.last_state = state;
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::UpdateRootArguments()
@@ -1794,7 +1794,7 @@ Result DeviceImpl::UpdateRootArguments()
         }
     }
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::CreateNullDescriptors()
@@ -1818,7 +1818,7 @@ Result DeviceImpl::CreateNullDescriptors()
     uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     device_->CreateUnorderedAccessView(nullptr, nullptr, &uav_desc, cpu_handle);
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::CreateStaticShaders()
@@ -1832,7 +1832,7 @@ Result DeviceImpl::CreateStaticShaders()
     {
         RETURN_IF_FAILED(static_shader->Init());
     }
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::CreateStaticBuffers()
@@ -1846,7 +1846,7 @@ Result DeviceImpl::CreateStaticBuffers()
     {
         RETURN_IF_FAILED(static_buffer->Init());
     }
-    return kOK;
+    return kSuccess;
 }
 
 void DeviceImpl::DestroyStaticShaders()
@@ -1936,7 +1936,7 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
     device_->CreateUnorderedAccessView(d3d12_res, nullptr, &uav_desc, shader_visible_cpu_desc_handle);
     device_->CreateUnorderedAccessView(d3d12_res, nullptr, &uav_desc, out_shader_invisible_cpu_desc_handle);
 
-    return kOK;
+    return kSuccess;
 }
 
 Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& group_count)
@@ -1976,7 +1976,7 @@ Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& gro
 
     command_list_->Dispatch(group_count.x, group_count.y, group_count.z);
 
-    return kOK;
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1997,7 +1997,7 @@ Result ShaderCompiler::Init()
 
     RETURN_IF_FAILED(utils_->CreateDefaultIncludeHandler(&include_handler_));
 
-    return kOK;
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2026,7 +2026,7 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
     RETURN_IF_FAILED(device->impl_->Init());
 
     out_device = device.release();
-    return kOK;
+    return kSuccess;
 }
 
 Result EnvironmentImpl::Init()
@@ -2058,7 +2058,7 @@ Result EnvironmentImpl::Init()
 
     RETURN_IF_FAILED(shader_compiler_.Init());
 
-    return kOK;
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2577,7 +2577,7 @@ Result CreateEnvironment(Environment*& out_env)
     RETURN_IF_FAILED(env->impl_->Init());
 
     out_env = env.release();
-    return kOK;
+    return kSuccess;
 }
 
 } // namespace jd3d12

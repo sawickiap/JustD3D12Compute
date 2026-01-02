@@ -231,7 +231,7 @@ const wchar_t* GetResultString(Result res)
 {
     switch(res)
     {
-    case kOK: return L"OK";
+    case kSuccess: return L"Success";
     case kFalse: return L"False";
     case kNotReady: return L"Not ready";
     case kTimeout: return L"Timeout";
@@ -351,7 +351,7 @@ Result LoadFile(const wchar_t* path, char*& out_data, size_t& out_size, size_t m
 
     out_data = data.release();
     out_size = size;
-    return kOK;
+    return kSuccess;
 }
 
 } // namespace jd3d12

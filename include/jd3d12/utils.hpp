@@ -41,7 +41,7 @@ Negative values (most significant bit set) indicate failure, non-negative values
 enum ResultCode : int32_t
 {
     /// Main code for success.
-    kOK                             = 0,
+    kSuccess                        = 0,
     /// Used to indicate that no work was done, e.g. after issuing a copy command with size=0.
     kFalse                          = 1,
     /// Returned when #kCommandFlagDontWait was used and the command didn't execute because
