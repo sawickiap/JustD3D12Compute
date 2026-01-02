@@ -933,7 +933,7 @@ Result ShaderCompilationResultImpl::Init(CComPtr<IDxcResult>&& dxc_result)
     if(FAILED(dxc_result_->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object_), nullptr)))
         object_.Release();
 
-    return kOK;
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2107,7 +2107,7 @@ Result ShaderCompiler::Init(const EnvironmentDesc& env_desc)
 
     JD3D12_RETURN_IF_FAILED(utils_->CreateDefaultIncludeHandler(&include_handler_));
 
-    return kOK;
+    return kSuccess;
 }
 
 Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
@@ -2288,7 +2288,7 @@ Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& p
     result->impl_ = new ShaderCompilationResultImpl(result.get(), this);
     JD3D12_RETURN_IF_FAILED(result->impl_->Init(std::move(dxc_result)));
     out_result = result.release();
-    return kOK;
+    return kSuccess;
 }
 
 Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& params,
