@@ -40,6 +40,8 @@ public:
 
 private:
     uint32_t severity_mask_ = 0;
+
+    std::mutex print_stream_mutex_;
     std::unique_ptr<PrintStream> print_stream_;
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(Logger);

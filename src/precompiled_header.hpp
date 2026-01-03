@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <memory>
 #include <atomic>
+#include <mutex>
 #include <iterator>
 #include <type_traits>
 #include <filesystem>

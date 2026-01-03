@@ -333,6 +333,7 @@ void Logger::Log(LogSeverity severity, const wchar_t* format, ...)
 
     const wchar_t* const severity_str = GetLogSeverityString(severity);
 
+    std::lock_guard<std::mutex> lock(print_stream_mutex_);
     print_stream_->PrintF(L"[%s] %s\n", severity_str, msg.c_str());
 }
 

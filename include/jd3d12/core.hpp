@@ -660,7 +660,8 @@ enum EnvironmentFlags : uint32_t
     It can help identify warnings and errors with incorrect usage of the D3D12 API.
     On the other hand, it can slow down execution.
 
-    If the initialization of the Debug Layer fails, the entire creation of the #Environment object fails.
+    For Debug Layer to work, you need to put file "d3d12SDKLayers.dll" in the directory
+    specified as EnvironmentDesc::d3d12_dll_path.
     */
     kEnvironmentFlagEnableD3d12DebugLayer = 0x10u,
     /** Enables additional GPU-based validation.
