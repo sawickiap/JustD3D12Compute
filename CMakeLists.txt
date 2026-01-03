@@ -92,10 +92,12 @@ target_sources(jd3d12 PRIVATE
    "src/utils.cpp"
    "src/core.cpp"
    "src/internal_utils.cpp"
+   "src/logger.cpp"
 )
 target_sources(jd3d12 PRIVATE FILE_SET internal_headers TYPE HEADERS BASE_DIRS src FILES
    "src/precompiled_header.hpp"
    "src/internal_utils.hpp"
+   "src/logger.hpp"
 )
 target_link_libraries(jd3d12 PRIVATE "d3d12" "dxgi" "dxguid")
 target_include_directories(jd3d12 PUBLIC

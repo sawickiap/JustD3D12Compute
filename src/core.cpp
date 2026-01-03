@@ -8,6 +8,7 @@
 
 #include <jd3d12/core.hpp>
 #include <jd3d12/config.hpp>
+#include "logger.hpp"
 #include "internal_utils.hpp"
 
 namespace jd3d12
@@ -25,6 +26,7 @@ public:
     virtual ~DeviceObject() = 0 { }
 
     DeviceImpl* GetDevice() const noexcept { return device_; }
+    Logger* GetLogger() const;
     ID3D12Device* GetD3d12Device() const noexcept;
     const wchar_t* GetName() const { return !name_.empty() ? name_.c_str() : nullptr; }
 
@@ -401,9 +403,10 @@ class EnvironmentImpl
 public:
     EnvironmentImpl(Environment* interface_obj, const EnvironmentDesc& desc);
     ~EnvironmentImpl();
-    Result Init(const EnvironmentDesc& desc);
+    Result Init();
 
     Environment* GetInterface() const noexcept { return interface_obj_; }
+    Logger* GetLogger() const noexcept { return logger_.get(); }
     IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
     IDXGIAdapter1* GetAdapter1() const noexcept { return adapter_; }
     ID3D12SDKConfiguration1* GetSDKConfiguration1() const noexcept { return sdk_config1_; }
@@ -418,6 +421,8 @@ public:
 
 private:
     Environment* const interface_obj_;
+    EnvironmentDesc desc_ = {};
+    std::unique_ptr<Logger> logger_;
     CComPtr<IDXGIFactory6> dxgi_factory6_;
     UINT selected_adapter_index_ = UINT32_MAX;
     CComPtr<IDXGIAdapter1> adapter_;
@@ -454,6 +459,12 @@ ID3D12Device* DeviceObject::GetD3d12Device() const noexcept
 {
     JD3D12_ASSERT(device_ != nullptr);
     return device_->GetDevice();
+}
+
+Logger* DeviceObject::GetLogger() const
+{
+    JD3D12_ASSERT(device_ && device_->GetEnvironment());
+    return device_->GetEnvironment()->GetLogger();
 }
 
 void DeviceObject::SetDeviceObjectName(uint32_t device_flags, ID3D12Object *obj, const wchar_t* name,
@@ -964,8 +975,7 @@ DeviceImpl::DeviceImpl(Device* interface_obj, EnvironmentImpl* env, const Device
 
 DeviceImpl::~DeviceImpl()
 {
-    if(env_ == nullptr) // Empty object, created using default constructor.
-        return;
+    JD3D12_LOG(kLogSeverityInfo, L"Destroying Device 0x%016" PRIXPTR, uintptr_t(GetInterface()));
 
     HRESULT hr = EnsureCommandListState(CommandListState::kNone);
     JD3D12_ASSERT(SUCCEEDED(hr) && "Failed to process pending command list in Device destructor.");
@@ -1500,6 +1510,16 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
 
 Result DeviceImpl::Init()
 {
+    DXGI_ADAPTER_DESC adapter_desc = {};
+    {
+        env_->GetAdapter1()->GetDesc(&adapter_desc);
+        // Ignoring the result.
+    }
+
+    JD3D12_LOG(kLogSeverityInfo, L"Creating Device 0x%016" PRIXPTR " \"%s\": flags=0x%08X for GPU \"%s\"",
+        uintptr_t(GetInterface()),
+        EnsureNonNullString(desc_.name), desc_.flags, adapter_desc.Description);
+
     JD3D12_RETURN_IF_FAILED(env_->GetDeviceFactory()->CreateDevice(env_->GetAdapter1(),
         D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&device_)));
 
@@ -2222,14 +2242,71 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
 
 EnvironmentImpl::EnvironmentImpl(Environment* interface_obj, const EnvironmentDesc& desc)
     : interface_obj_{interface_obj}
+    , desc_{desc}
 {
     Singleton& singleton = Singleton::GetInstance();
     JD3D12_ASSERT(singleton.env_ == nullptr && "Only one Environment instance can be created.");
     singleton.env_ = this;
 }
 
+Result EnvironmentImpl::Init()
+{
+    bool logger_is_needed = false;
+    JD3D12_RETURN_IF_FAILED(Logger::IsNeeded(desc_, logger_is_needed));
+    if(logger_is_needed)
+    {
+        logger_ = std::make_unique<Logger>();
+        JD3D12_RETURN_IF_FAILED(logger_->Init(desc_));
+    }
+
+    JD3D12_LOG(kLogSeverityInfo, L"Creating Environment 0x%016" PRIXPTR ": flags=0x%08X",
+        uintptr_t(GetInterface()), desc_.flags);
+
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc_.d3d12_dll_path),
+        "EnvironmentDesc::d3d12_dll_path cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc_.dxc_dll_path),
+        "EnvironmentDesc::dxc_dll_path cannot be null or empty.");
+
+    JD3D12_RETURN_IF_FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgi_factory6_)));
+
+    for(UINT adapter_index = 0; ; ++adapter_index)
+    {
+        CComPtr<IDXGIAdapter1> adapter1;
+        HRESULT hr = dxgi_factory6_->EnumAdapterByGpuPreference(adapter_index,
+            DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter1));
+        if(FAILED(hr))
+            break;
+
+        DXGI_ADAPTER_DESC1 adapter_desc = {};
+        JD3D12_RETURN_IF_FAILED(adapter1->GetDesc1(&adapter_desc));
+
+        selected_adapter_index_ = adapter_index;
+        adapter_ = std::move(adapter1);
+        break;
+    }
+
+    JD3D12_ASSERT_OR_RETURN(selected_adapter_index_ != UINT32_MAX, "Adapter not found.");
+
+    JD3D12_RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
+
+    uint32_t sdk_version = desc_.is_d3d12_agility_sdk_preview
+        ? D3D12_PREVIEW_SDK_VERSION : D3D12_SDK_VERSION;
+    JD3D12_RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(sdk_version, desc_.d3d12_dll_path,
+        IID_PPV_ARGS(&device_factory_)));
+
+    JD3D12_RETURN_IF_FAILED(shader_compiler_.Init(desc_));
+
+    // Clear strings as they can become invalid after this call.
+    desc_.d3d12_dll_path = nullptr;
+    desc_.dxc_dll_path = nullptr;
+
+    return kSuccess;
+}
+
 EnvironmentImpl::~EnvironmentImpl()
 {
+    JD3D12_LOG(kLogSeverityInfo, L"Destroying Environment 0x%016" PRIXPTR, uintptr_t(GetInterface()));
+
     JD3D12_ASSERT(device_count_ == 0 && "Destroying Environment object while there are still Device objects not destroyed.");
     Singleton::GetInstance().env_ = nullptr;
 }
@@ -2304,45 +2381,6 @@ Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& par
 
     return CompileShaderFromMemory(params, hlsl_source_file_name,
         ConstDataSpan{source_ptr, source_size}, out_result);
-}
-
-Result EnvironmentImpl::Init(const EnvironmentDesc& desc)
-{
-    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc.d3d12_dll_path),
-        "EnvironmentDesc::d3d12_dll_path cannot be null or empty.");
-    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc.dxc_dll_path),
-        "EnvironmentDesc::dxc_dll_path cannot be null or empty.");
-
-    JD3D12_RETURN_IF_FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgi_factory6_)));
-
-    for(UINT adapter_index = 0; ; ++adapter_index)
-    {
-        CComPtr<IDXGIAdapter1> adapter1;
-        HRESULT hr = dxgi_factory6_->EnumAdapterByGpuPreference(adapter_index,
-            DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter1));
-        if(FAILED(hr))
-            break;
-
-        DXGI_ADAPTER_DESC1 adapter_desc = {};
-        JD3D12_RETURN_IF_FAILED(adapter1->GetDesc1(&adapter_desc));
-
-        selected_adapter_index_ = adapter_index;
-        adapter_ = std::move(adapter1);
-        break;
-    }
-
-    JD3D12_ASSERT_OR_RETURN(selected_adapter_index_ != UINT32_MAX, "Adapter not found.");
-
-    JD3D12_RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
-
-    uint32_t sdk_version = desc.is_d3d12_agility_sdk_preview
-        ? D3D12_PREVIEW_SDK_VERSION : D3D12_SDK_VERSION;
-    JD3D12_RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(sdk_version, desc.d3d12_dll_path,
-        IID_PPV_ARGS(&device_factory_)));
-
-    JD3D12_RETURN_IF_FAILED(shader_compiler_.Init(desc));
-
-    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3009,7 +3047,7 @@ Result CreateEnvironment(const EnvironmentDesc& desc, Environment*& out_env)
 
     auto env = std::unique_ptr<Environment>{new Environment{}};
     env->impl_ = new EnvironmentImpl{env.get(), desc};
-    JD3D12_RETURN_IF_FAILED(env->impl_->Init(desc));
+    JD3D12_RETURN_IF_FAILED(env->impl_->Init());
 
     out_env = env.release();
     return kSuccess;

@@ -108,7 +108,7 @@ private:
     JD3D12_NO_COPY_NO_MOVE_CLASS(Shader)
 };
 
-enum ShaderCompilationFlags
+enum ShaderCompilationFlags : uint32_t
 {
     /// Passed to DXC as `-denorm preserve`.
     kShaderCompilationFlagDenormPreserve = 0x00000001u,
@@ -140,7 +140,7 @@ enum ShaderCompilationFlags
     kShaderCompilationFlagNoFiniteMathOnly = 0x00000800u,
 };
 
-enum CharacterEncoding
+enum CharacterEncoding : uint32_t
 {
     /// Treats string as encoded in ANSI (1-byte, `char` characters).
     /// This value is equivalent to `CP_ACP` from WinAPI and `DXC_CP_ACP` from DXC.
@@ -156,7 +156,7 @@ enum CharacterEncoding
     kCharacterEncodingUtf32 = 12000,
 };
 
-enum HlslVersion
+enum HlslVersion : uint32_t
 {
     kHlslVersion2016 = 2016,
     kHlslVersion2017 = 2017,
@@ -164,7 +164,7 @@ enum HlslVersion
     kHlslVersion2021 = 2021,
 };
 
-enum ShaderOptimizationLevel
+enum ShaderOptimizationLevel : int32_t
 {
     kShaderOptimizationDisabled = -1,
     kShaderOptimizationLevel0 = 0,
@@ -173,7 +173,7 @@ enum ShaderOptimizationLevel
     kShaderOptimizationLevel3 = 3,
 };
 
-enum ShaderModel
+enum ShaderModel : uint16_t
 {
     kShaderModel6_0 = 0x0600,
     kShaderModel6_1 = 0x0601,
@@ -267,7 +267,7 @@ private:
     JD3D12_NO_COPY_NO_MOVE_CLASS(ShaderCompilationResult)
 };
 
-enum DeviceFlags
+enum DeviceFlags : uint32_t
 {
     kDeviceFlagDisableGpuTimeout  = 0x1,
     kDeviceFlagDisableNameSetting = 0x2,
@@ -619,8 +619,24 @@ private:
     JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBufferFromFile)
 };
 
+enum EnvironmentFlags : uint32_t
+{
+    kEnvironmentFlagLogStandardOutput     = 0x01u,
+    kEnvironmentFlagLogStandardError      = 0x02u,
+    kEnvironmentFlagLogDebug              = 0x04u,
+    kEnvironmentFlagLogFile               = 0x08u,
+
+    kEnvironmentMaskLog                   = 0x0Fu,
+
+    kEnvironmentFlagEnableD3d12DebugLayer = 0x10u,
+
+};
+
 struct EnvironmentDesc
 {
+    /** \brief Use #EnvironmentFlags.
+    */
+    uint32_t flags = 0;
     /** \brief Path to a directory, relative to the program executable (NOT the current working directory),
     where .dll files from DirectX 12 Agility SDK will be placed.
 
@@ -650,6 +666,17 @@ struct EnvironmentDesc
     initializing D3D12.
     */
     bool is_d3d12_agility_sdk_preview = false;
+    /** \brief Bit flags with severity levels to enable for logging.
+
+    It is recommeneded to use one of the `kLogSeverityMin*` values to enable all levels higher or equal
+    than selected level, e.g. warning or error.
+    */
+    uint32_t log_severity = kLogSeverityMinWarning;
+    /** \brief Path to destination text file that will be created and used for logging.
+
+    This parameter is used only when #kEnvironmentFlagLogFile is specified.
+    */
+    const wchar_t* log_file_path = nullptr;
 };
 
 class Environment

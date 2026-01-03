@@ -325,6 +325,33 @@ const wchar_t* GetResultString(Result res)
     return L"";
 }
 
+const wchar_t* GetLogSeverityString(LogSeverity severity)
+{
+    if((severity & kLogSeverityCrash))
+        return L"CRASH";
+    if((severity & kLogSeverityAssert))
+        return L"ASSERT";
+    if((severity & kLogSeverityD3d12Corruption))
+        return L"D3D12 CORRUPTION";
+    if((severity & kLogSeverityD3d12Error))
+        return L"D3D12 ERROR";
+    if((severity & kLogSeverityError))
+        return L"ERROR";
+    if((severity & kLogSeverityD3d12Warning))
+        return L"D3D12 WARNING";
+    if((severity & kLogSeverityWarning))
+        return L"WARNING";
+    if((severity & kLogSeverityD3d12Info))
+        return L"D3D12 INFO";
+    if((severity & kLogSeverityD3d12Message))
+        return L"D3D12 MESSAGE";
+    if((severity & kLogSeverityInfo))
+        return L"INFO";
+    if((severity & kLogSeverityDebug))
+        return L"DEBUG";
+    return L"";
+}
+
 const FormatDesc* GetFormatDesc(Format format)
 {
     constexpr Format kLastLinearIndexFormat = Format::kBC7_Unorm_sRGB;

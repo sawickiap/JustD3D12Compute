@@ -16,6 +16,11 @@ namespace jd3d12
 inline bool IsStringEmpty(const char* s) { return s == nullptr || s[0] == '\0'; }
 inline bool IsStringEmpty(const wchar_t* s) { return s == nullptr || s[0] == L'\0'; }
 
+/// Ensures the string is not null by returning static string "" if it was null.
+inline const char* EnsureNonNullString(const char* s) { return s != nullptr ? s : ""; }
+/// Ensures the string is not null by returning static string "" if it was null.
+inline const wchar_t* EnsureNonNullString(const wchar_t* s) { return s != nullptr ? s : L""; }
+
 /** \brief Returns true if the string is a valid identifier in HLSL language, suitable to be a function
 name or a macro name - starts with a character `[A-Za-z_]` with next characters `[A-Za-z0-9_]`,
 like `"MainShader"`, `"main_shader_123"`.
@@ -218,6 +223,36 @@ enum class Format
     kA4B4G4R4_Unorm                     = 191,
 };
 
+/** \brief Severity level for logging.
+*/
+enum LogSeverity : uint16_t
+{
+    kLogSeverityDebug           = 0x0001,
+    kLogSeverityInfo            = 0x0002,
+    kLogSeverityD3d12Message    = 0x0004,
+    kLogSeverityD3d12Info       = 0x0008,
+    kLogSeverityWarning         = 0x0010,
+    kLogSeverityD3d12Warning    = 0x0020,
+    kLogSeverityError           = 0x0040,
+    kLogSeverityD3d12Error      = 0x0080,
+    kLogSeverityD3d12Corruption = 0x0100,
+    kLogSeverityAssert          = 0x0200,
+    kLogSeverityCrash           = 0x0400,
+
+    kLogSeverityAll                = 0xFFFF,
+    kLogSeverityMinDebug           = 0x0FFF,
+    kLogSeverityMinInfo            = 0x0FFE,
+    kLogSeverityMinD3d12Message    = 0x0FFC,
+    kLogSeverityMinD3d12Info       = 0x0FF8,
+    kLogSeverityMinWarning         = 0x0FF0,
+    kLogSeverityMinD3d12Warning    = 0x0FE0,
+    kLogSeverityMinError           = 0x0FC0,
+    kLogSeverityMinD3d12Error      = 0x0F80,
+    kLogSeverityMinD3d12Corruption = 0x0F00,
+    kLogSeverityMinAssert          = 0x0E00,
+    kLogSeverityMinCrash           = 0x0C00,
+};
+
 struct FormatDesc
 {
     /// String name of the format, like "R8G8B8A8_Unorm" for kR8G8B8A8_Unorm.
@@ -251,10 +286,26 @@ Result MakeResultFromLastError();
 /** \brief Returns string representation of the given Result code.
 
 For example, for `kErrorOutOfMemory` returns "Out of memory";
-For unknown code, returns empty string "".
+
+For unknown code, returns empty string "". The function never returns null.
+
 Returned pointer shouldn't be freed - it points to a static constant string.
 */
 const wchar_t* GetResultString(Result res);
+
+/** \brief Returns string representation of the given logging severity level.
+
+Returned string is upper case. For example, #kLogSeverityWarning returns "WARNING",
+#kLogSeverityD3d12Error returns "D3D12 ERROR".
+
+Only one bit flag should be used as input. When multiple bits are set, a string
+is returned representing the highest severity among specified bits.
+
+For unknown values, empty string "" is returned. The function never returns null.
+
+Returned pointer shouldn't be freed - it points to a static constant string.
+*/
+const wchar_t* GetLogSeverityString(LogSeverity severity);
 
 /** \brief Returns the description of given format.
 

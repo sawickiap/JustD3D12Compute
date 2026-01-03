@@ -17,6 +17,9 @@
 namespace jd3d12
 {
 
+std::wstring SVPrintF(const wchar_t* format, va_list arg_list);
+std::wstring SPrintF(const wchar_t* format, ...);
+
 struct CloseHandleDeleter
 {
     typedef HANDLE pointer;
@@ -92,8 +95,5 @@ private:
     T stack_items_[stack_item_max_count];
     std::vector<T> heap_items_;
 };
-
-std::wstring SVPrintF(const wchar_t* format, va_list arg_list);
-std::wstring SPrintF(const wchar_t* format, ...);
 
 } // namespace jd3d12

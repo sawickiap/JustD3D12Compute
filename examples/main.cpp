@@ -54,12 +54,15 @@ Device* g_dev;
 
 int main(int argc, char** argv)
 {
+
     std::unique_ptr<Environment> env;
     std::unique_ptr<Device> dev;
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     EnvironmentDesc env_desc{};
+    env_desc.flags = kEnvironmentFlagLogStandardOutput;
+    env_desc.log_severity = kLogSeverityAll;
     assert(Succeeded(CreateEnvironment(env_desc, g_env)));
     env.reset(g_env);
 
