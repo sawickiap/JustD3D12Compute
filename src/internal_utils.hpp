@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <jd3d12/utils.hpp>
+
 #define JD3D12_RETURN_IF_FAILED(expr) \
     do { \
         if(jd3d12::Result res__ = (expr); jd3d12::Failed(res__)) \
@@ -19,6 +21,9 @@ namespace jd3d12
 
 std::wstring SVPrintF(const wchar_t* format, va_list arg_list);
 std::wstring SPrintF(const wchar_t* format, ...);
+
+LogSeverity D3d12MessageSeverityToLogSeverity(D3D12_MESSAGE_SEVERITY severity);
+const wchar_t* GetD3d12MessageCategoryString(D3D12_MESSAGE_CATEGORY category);
 
 struct CloseHandleDeleter
 {

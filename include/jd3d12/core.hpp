@@ -663,6 +663,28 @@ enum EnvironmentFlags : uint32_t
     If the initialization of the Debug Layer fails, the entire creation of the #Environment object fails.
     */
     kEnvironmentFlagEnableD3d12DebugLayer = 0x10u,
+    /** Enables additional GPU-based validation.
+
+    This flag is meaningful only when #kEnvironmentFlagEnableD3d12DebugLayer is also specified.
+
+    It can slow down the execution significantly or even cause the application to crash in some cases!
+    */
+    kEnvironmentFlagEnableD3d12GpuBasedValidation = 0x20u,
+    /** Disables synchronized command queue validation as part of the Debug Layer.
+
+    This flag is meaningful only when #kEnvironmentFlagEnableD3d12DebugLayer is also specified.
+
+    It can reduce performance overhead of the Debug Layer.
+    */
+    kEnvironmentFlagDisableD3d12SynchronizedCommandQueueValidation = 0x40u,
+    /** Disables state tracking as part of GPU-based validation.
+
+    This flag is meaningful only when #kEnvironmentFlagEnableD3d12DebugLayer and
+    #kEnvironmentFlagEnableD3d12GpuBasedValidation are also specified.
+
+    It can reduce performance overhead of the Debug Layer.
+    */
+    kEnvironmentFlagDisableD3d12StateTracking = 0x80u,
 
 };
 
@@ -709,7 +731,7 @@ struct EnvironmentDesc
     uint32_t log_severity = kLogSeverityMinWarning;
     /** \brief Path to destination text file that will be created and used for logging.
 
-    This parameter is used only when #kEnvironmentFlagLogFile is specified.
+    This parameter should be specified if and only if #kEnvironmentFlagLogFile is specified.
     */
     const wchar_t* log_file_path = nullptr;
 };

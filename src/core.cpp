@@ -251,7 +251,7 @@ class DeviceImpl : public DeviceObject
 public:
     DeviceImpl(Device* interface_obj, EnvironmentImpl* env, const DeviceDesc& desc);
     ~DeviceImpl();
-    Result Init();
+    Result Init(bool enable_d3d12_debug_layer);
 
     Device* GetInterface() const noexcept { return interface_obj_; }
     EnvironmentImpl* GetEnvironment() const noexcept { return env_; }
@@ -313,10 +313,22 @@ public:
 private:
     enum class CommandListState { kNone, kRecording, kExecuting };
 
+    static void StaticDebugLayerMessageCallback(
+        D3D12_MESSAGE_CATEGORY Category,
+        D3D12_MESSAGE_SEVERITY Severity,
+        D3D12_MESSAGE_ID ID,
+        LPCSTR pDescription,
+        void* pContext);
+
     Device* const interface_obj_;
     EnvironmentImpl* const env_;
     DeviceDesc desc_{};
     CComPtr<ID3D12Device> device_;
+
+    // Optional, can be null if Debug Layer was not enabled.
+    CComPtr<ID3D12InfoQueue1> info_queue_;
+    DWORD debug_layer_callback_cookie_ = 0;
+
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16_{};
 
     CComPtr<ID3D12CommandQueue> command_queue_;
@@ -342,6 +354,13 @@ private:
     uint32_t null_cbv_index_ = 0;
     uint32_t null_srv_index_ = 1;
     uint32_t null_uav_index_ = 2;
+
+    Result EnableDebugLayer();
+    void DebugLayerMessageCallback(
+        D3D12_MESSAGE_CATEGORY Category,
+        D3D12_MESSAGE_SEVERITY Severity,
+        D3D12_MESSAGE_ID ID,
+        LPCSTR pDescription);
 
     // Starts executing recorded commands on the GPU. (kRecording -> kExecuting)
     Result ExecuteRecordedCommands();
@@ -430,6 +449,8 @@ private:
     CComPtr<ID3D12DeviceFactory> device_factory_;
     std::atomic<size_t> device_count_{ 0 };
     ShaderCompiler shader_compiler_;
+
+    Result EnableDebugLayer();
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(EnvironmentImpl)
 };
@@ -986,6 +1007,11 @@ DeviceImpl::~DeviceImpl()
     JD3D12_ASSERT(buffer_count_ == 0 && "Destroying Device object while there are still Buffer objects not destroyed.");
     JD3D12_ASSERT(shader_count_ == 0 && "Destroying Device object while there are still Shader objects not destroyed.");
 
+    if(info_queue_)
+    {
+        info_queue_->UnregisterMessageCallback(debug_layer_callback_cookie_);
+    }
+
     Singleton& singleton = Singleton::GetInstance();
     if(singleton.dev_count_ == 1)
     {
@@ -1508,7 +1534,7 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
     return kSuccess;
 }
 
-Result DeviceImpl::Init()
+Result DeviceImpl::Init(bool enable_d3d12_debug_layer)
 {
     DXGI_ADAPTER_DESC adapter_desc = {};
     {
@@ -1522,6 +1548,11 @@ Result DeviceImpl::Init()
 
     JD3D12_RETURN_IF_FAILED(env_->GetDeviceFactory()->CreateDevice(env_->GetAdapter1(),
         D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&device_)));
+
+    if(enable_d3d12_debug_layer)
+    {
+        JD3D12_RETURN_IF_FAILED(EnableDebugLayer());
+    }
 
     HRESULT hr = device_->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS16, &options16_, sizeof(options16_));
     if(FAILED(hr))
@@ -1564,6 +1595,27 @@ Result DeviceImpl::Init()
 
     desc_.name = nullptr;
     return kSuccess;
+}
+
+Result DeviceImpl::EnableDebugLayer()
+{
+    JD3D12_RETURN_IF_FAILED(device_->QueryInterface(IID_PPV_ARGS(&info_queue_)));
+
+    JD3D12_RETURN_IF_FAILED(info_queue_->RegisterMessageCallback(StaticDebugLayerMessageCallback,
+        D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &debug_layer_callback_cookie_));
+
+    return kSuccess;
+}
+
+void DeviceImpl::DebugLayerMessageCallback(
+    D3D12_MESSAGE_CATEGORY Category,
+    D3D12_MESSAGE_SEVERITY Severity,
+    D3D12_MESSAGE_ID ID,
+    LPCSTR pDescription)
+{
+    const LogSeverity log_severity = D3d12MessageSeverityToLogSeverity(Severity);
+    GetLogger()->Log(log_severity, L"%S [%s #%u]", pDescription,
+        GetD3d12MessageCategoryString(Category), uint32_t(ID));
 }
 
 Result DeviceImpl::ExecuteRecordedCommands()
@@ -2107,6 +2159,18 @@ Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& gro
     return kSuccess;
 }
 
+void DeviceImpl::StaticDebugLayerMessageCallback(
+    D3D12_MESSAGE_CATEGORY Category,
+    D3D12_MESSAGE_SEVERITY Severity,
+    D3D12_MESSAGE_ID ID,
+    LPCSTR pDescription,
+    void* pContext)
+{
+    DeviceImpl* const dev = (DeviceImpl*)pContext;
+    JD3D12_ASSERT(dev != nullptr);
+    dev->DebugLayerMessageCallback(Category, Severity, ID, pDescription);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // class ShaderCompiler
 
@@ -2287,6 +2351,11 @@ Result EnvironmentImpl::Init()
 
     JD3D12_ASSERT_OR_RETURN(selected_adapter_index_ != UINT32_MAX, "Adapter not found.");
 
+    if((desc_.flags & kEnvironmentFlagEnableD3d12DebugLayer) != 0)
+    {
+        JD3D12_RETURN_IF_FAILED(EnableDebugLayer());
+    }
+
     JD3D12_RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
 
     uint32_t sdk_version = desc_.is_d3d12_agility_sdk_preview
@@ -2317,7 +2386,9 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
 
     auto device = std::unique_ptr<Device>{new Device{}};
     device->impl_ = new DeviceImpl(device.get(), this, desc);
-    JD3D12_RETURN_IF_FAILED(device->impl_->Init());
+
+    const bool enable_d3d12_debug_layer = (desc_.flags & kEnvironmentFlagEnableD3d12DebugLayer) != 0;
+    JD3D12_RETURN_IF_FAILED(device->impl_->Init(enable_d3d12_debug_layer));
 
     out_device = device.release();
     return kSuccess;
@@ -2381,6 +2452,46 @@ Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& par
 
     return CompileShaderFromMemory(params, hlsl_source_file_name,
         ConstDataSpan{source_ptr, source_size}, out_result);
+}
+
+Result EnvironmentImpl::EnableDebugLayer()
+{
+    CComPtr<ID3D12Debug> debug;
+    JD3D12_RETURN_IF_FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
+    debug->EnableDebugLayer();
+
+    const bool enable_gbv = (desc_.flags & kEnvironmentFlagEnableD3d12GpuBasedValidation) != 0;
+    const bool disable_synchronized_command_queue_validation
+        = (desc_.flags & kEnvironmentFlagDisableD3d12SynchronizedCommandQueueValidation) != 0;
+
+    if(enable_gbv || disable_synchronized_command_queue_validation)
+    {
+        if(CComPtr<ID3D12Debug1> debug1
+            ; SUCCEEDED(debug->QueryInterface(IID_PPV_ARGS(&debug1))))
+        {
+            if(enable_gbv)
+            {
+                debug1->SetEnableGPUBasedValidation(TRUE);
+
+                if((desc_.flags & kEnvironmentFlagDisableD3d12StateTracking) != 0)
+                {
+                    if(CComPtr<ID3D12Debug2> debug2
+                        ; SUCCEEDED(debug->QueryInterface(IID_PPV_ARGS(&debug2))))
+                    {
+                        debug2->SetGPUBasedValidationFlags(
+                            D3D12_GPU_BASED_VALIDATION_FLAGS_DISABLE_STATE_TRACKING);
+                    }
+                }
+            }
+
+            if(disable_synchronized_command_queue_validation)
+            {
+                debug1->SetEnableSynchronizedCommandQueueValidation(FALSE);
+            }
+        }
+    }
+
+    return kSuccess;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
