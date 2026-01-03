@@ -10,6 +10,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -387,6 +388,21 @@ TEST_CASE("ByteAddress buffer", "[gpu][buffer][hlsl]")
     {
         CHECK(dst_data[i] == main_src_data[i] * main_src_data[i] + 1.f);
     }
+}
+
+TEST_CASE("Shader compilation failure", "[gpu][hlsl][fail]")
+{
+    ShaderCompilationParams compilation_params{};
+    compilation_params.entry_point = L"InvalidEntryPoint";
+
+    ShaderCompilationResult* result_ptr = nullptr;
+    Result res = g_env->CompileShaderFromFile(compilation_params, L"shaders/Test.hlsl", result_ptr);
+    CHECK(res == kSuccess);
+    REQUIRE(result_ptr != nullptr);
+    CHECK(Failed(result_ptr->GetResult()));
+    CHECK(result_ptr->GetBytecode().size == 0);
+    const char* errors_and_warnings = result_ptr->GetErrorsAndWarnings();
+    CHECK_THAT(errors_and_warnings, Catch::Matchers::ContainsSubstring("error: missing entry point definition"));
 }
 
 TEST_CASE("ClearBufferToUintValues", "[gpu][buffer][clear]")
