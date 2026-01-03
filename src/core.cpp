@@ -327,7 +327,7 @@ private:
 
     // Optional, can be null if Debug Layer was not enabled.
     CComPtr<ID3D12InfoQueue1> info_queue_;
-    DWORD debug_layer_callback_cookie_ = 0;
+    DWORD debug_layer_callback_cookie_ = UINT32_MAX;
 
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16_{};
 
@@ -998,8 +998,11 @@ DeviceImpl::~DeviceImpl()
 {
     JD3D12_LOG(kLogSeverityInfo, L"Destroying Device 0x%016" PRIXPTR, uintptr_t(GetInterface()));
 
-    HRESULT hr = EnsureCommandListState(CommandListState::kNone);
-    JD3D12_ASSERT(SUCCEEDED(hr) && "Failed to process pending command list in Device destructor.");
+    if(command_list_)
+    {
+        HRESULT hr = EnsureCommandListState(CommandListState::kNone);
+        JD3D12_ASSERT(SUCCEEDED(hr) && "Failed to process pending command list in Device destructor.");
+    }
 
     DestroyStaticShaders();
     DestroyStaticBuffers();
@@ -1007,7 +1010,7 @@ DeviceImpl::~DeviceImpl()
     JD3D12_ASSERT(buffer_count_ == 0 && "Destroying Device object while there are still Buffer objects not destroyed.");
     JD3D12_ASSERT(shader_count_ == 0 && "Destroying Device object while there are still Shader objects not destroyed.");
 
-    if(info_queue_)
+    if(info_queue_ && debug_layer_callback_cookie_ != UINT32_MAX)
     {
         info_queue_->UnregisterMessageCallback(debug_layer_callback_cookie_);
     }
@@ -1599,10 +1602,14 @@ Result DeviceImpl::Init(bool enable_d3d12_debug_layer)
 
 Result DeviceImpl::EnableDebugLayer()
 {
-    JD3D12_RETURN_IF_FAILED(device_->QueryInterface(IID_PPV_ARGS(&info_queue_)));
-
-    JD3D12_RETURN_IF_FAILED(info_queue_->RegisterMessageCallback(StaticDebugLayerMessageCallback,
-        D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &debug_layer_callback_cookie_));
+    HRESULT hr = device_->QueryInterface(IID_PPV_ARGS(&info_queue_));
+    // QueryInterface for ID3D12InfoQueue1 or ID3D12InfoQueue fails unless the Debug Layer
+    // is force-enabled externally using "dxcpl" app. I don't know why.
+    if(SUCCEEDED(hr))
+    {
+        info_queue_->RegisterMessageCallback(StaticDebugLayerMessageCallback,
+            D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &debug_layer_callback_cookie_);
+    }
 
     return kSuccess;
 }

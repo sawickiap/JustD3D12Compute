@@ -84,6 +84,8 @@ int main(int argc, char** argv)
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
         EnvironmentDesc env_desc{};
+        env_desc.flags = kEnvironmentFlagLogStandardOutput;
+        env_desc.log_severity = kLogSeverityMinWarning;
         CHECK_OUTSIDE_TESTS(Succeeded(CreateEnvironment(env_desc, g_env)));
         env.reset(g_env);
 
