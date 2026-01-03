@@ -619,19 +619,48 @@ private:
     JD3D12_NO_COPY_NO_MOVE_CLASS(StaticBufferFromFile)
 };
 
+/// Flags to be used in EnvironmentDesc::flags.
 enum EnvironmentFlags : uint32_t
 {
+    /** Enables logging to standard output stream (e.g. system console).
+
+    At most `kEnvironmentFlagLog*` can be used.
+    */
     kEnvironmentFlagLogStandardOutput     = 0x01u,
+    /** Enables logging to standard error stream (e.g. system console).
+
+    At most `kEnvironmentFlagLog*` can be used.
+    */
     kEnvironmentFlagLogStandardError      = 0x02u,
+    /** Enables logging to debugger output, using `OutputDebugStringW` function.
+
+    At most `kEnvironmentFlagLog*` can be used.
+    */
     kEnvironmentFlagLogDebug              = 0x04u,
+    /** Enables logging to a file.
+
+    File path must be specified in EnvironmentDesc::log_file_path.
+
+    At most `kEnvironmentFlagLog*` can be used.
+    */
     kEnvironmentFlagLogFile               = 0x08u,
+    /** Bit mask that covers all `kEnvironmentFlagLog*`.
 
+    You probably don't need to use it. It is used internally.
+    */
     kEnvironmentMaskLog                   = 0x0Fu,
+    /** Enables D3D12 Debug Layer and captures its messages, to be printed to the log.
 
+    It can help identify warnings and errors with incorrect usage of the D3D12 API.
+    On the other hand, it can slow down execution.
+
+    If the initialization of the Debug Layer fails, the entire creation of the #Environment object fails.
+    */
     kEnvironmentFlagEnableD3d12DebugLayer = 0x10u,
 
 };
 
+/// Description of an #Enviromnet object to be created. Use with CreateEnvironment() function.
 struct EnvironmentDesc
 {
     /** \brief Use #EnvironmentFlags.
