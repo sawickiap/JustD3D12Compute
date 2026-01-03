@@ -61,10 +61,11 @@ int main(int argc, char** argv)
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     EnvironmentDesc env_desc{};
-    env_desc.flags = kEnvironmentFlagLogStandardOutput
+    env_desc.flags = kEnvironmentFlagLogFile
         | kEnvironmentFlagEnableD3d12DebugLayer
         | kEnvironmentFlagEnableD3d12GpuBasedValidation;
     env_desc.log_severity = kLogSeverityAll;
+    env_desc.log_file_path = L"log.log";
     assert(Succeeded(CreateEnvironment(env_desc, g_env)));
     env.reset(g_env);
 
@@ -92,7 +93,7 @@ int main(int argc, char** argv)
     */
 
     DeviceDesc device_desc;
-    device_desc.name = L"My device";
+    device_desc.name = L"My device za\u017C\u00F3\u0142\u0107 g\u0119\u015Bl\u0105 ja\u017A\u0144";
     assert(Succeeded(env->CreateDevice(device_desc, g_dev)));
     dev.reset(g_dev);
 

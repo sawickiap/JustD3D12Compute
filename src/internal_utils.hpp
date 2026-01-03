@@ -25,6 +25,15 @@ std::wstring SPrintF(const wchar_t* format, ...);
 LogSeverity D3d12MessageSeverityToLogSeverity(D3D12_MESSAGE_SEVERITY severity);
 const wchar_t* GetD3d12MessageCategoryString(D3D12_MESSAGE_CATEGORY category);
 
+struct FCloseDeleter
+{
+    void operator()(FILE* p) const noexcept
+    {
+        if(p != nullptr)
+            fclose(p);
+    }
+};
+
 struct CloseHandleDeleter
 {
     typedef HANDLE pointer;

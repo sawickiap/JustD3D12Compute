@@ -82,17 +82,9 @@ private:
 class FilePrintStream : public PrintStream
 {
 public:
-    // Initializes object with empty state.
-    FilePrintStream();
-    // Opens file during initialization.
-    FilePrintStream(const wchar_t* file_path, const wchar_t* mode);
-    // Automatically closes file.
-    ~FilePrintStream();
-
-    // mode: Like in fopen, e.g. "wb", "a".
-    bool Open(const wchar_t* file_path, const wchar_t* mode);
-    void Close();
-    bool IsOpened() const { return file_ != nullptr; }
+    FilePrintStream() = default;
+    Result Init(const wchar_t* file_path);
+    ~FilePrintStream() = default;
 
     using PrintStream::Print;
     virtual void Print(const wchar_t* str, size_t str_len);
@@ -100,7 +92,7 @@ public:
     virtual void VPrintF(const wchar_t* format, va_list arg_list);
 
 private:
-    FILE* file_;
+    std::unique_ptr<FILE, FCloseDeleter> file_;
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(FilePrintStream);
 };
@@ -191,69 +183,33 @@ void StandardOutputPrintStream::VPrintF(const wchar_t* format, va_list arg_list)
 ////////////////////////////////////////////////////////////////////////////////
 // class FilePrintStream
 
-FilePrintStream::FilePrintStream() :
-    file_(nullptr)
+Result FilePrintStream::Init(const wchar_t* file_path)
 {
-}
+    FILE* f = nullptr;
+    errno_t e = _wfopen_s(&f, file_path, L"wb");
+    if(e != 0 || f == nullptr)
+        return kErrorFail;
+    file_.reset(f);
 
-FilePrintStream::FilePrintStream(const wchar_t* file_path, const wchar_t* mode) :
-    file_(nullptr)
-{
-    Open(file_path, mode);
-}
+    fputws(L"\ufeff", f);
 
-FilePrintStream::~FilePrintStream()
-{
-    Close();
-}
-
-bool FilePrintStream::Open(const wchar_t* file_path, const wchar_t* mode)
-{
-    Close();
-    bool success = _wfopen_s(&file_, file_path, mode) == 0;
-    if(!success)
-    {
-        file_ = nullptr;
-        // Handle error somehow.
-        JD3D12_ASSERT(0);
-    }
-    return success;
-}
-
-void FilePrintStream::Close()
-{
-    if(file_)
-    {
-        fclose(file_);
-        file_ = nullptr;
-    }
+    return kSuccess;
 }
 
 void FilePrintStream::Print(const wchar_t* str, size_t str_len)
 {
-    if(IsOpened())
-    {
-        JD3D12_ASSERT(str_len <= INT_MAX);
-        ::fwprintf(file_, L"%.*s", (int)str_len, str);
-    }
-    else
-        JD3D12_ASSERT(0);
+    JD3D12_ASSERT(str_len <= INT_MAX);
+    ::fwprintf(file_.get(), L"%.*s", (int)str_len, str);
 }
 
 void FilePrintStream::Print(const wchar_t* str)
 {
-    if(IsOpened())
-        ::fwprintf(file_, L"%s", str);
-    else
-        JD3D12_ASSERT(0);
+    ::fwprintf(file_.get(), L"%s", str);
 }
 
 void FilePrintStream::VPrintF(const wchar_t* format, va_list arg_list)
 {
-    if(IsOpened())
-        ::vfwprintf(file_, format, arg_list);
-    else
-        JD3D12_ASSERT(0);
+    ::vfwprintf(file_.get(), format, arg_list);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -313,7 +269,9 @@ Result Logger::Init(const EnvironmentDesc& env_desc)
     }
     else if((env_desc.flags & kEnvironmentFlagLogFile) != 0)
     {
-        print_stream_ = std::make_unique<FilePrintStream>(env_desc.log_file_path, L"w");
+        auto file_print_stream = std::make_unique<FilePrintStream>();
+        JD3D12_RETURN_IF_FAILED(file_print_stream->Init(env_desc.log_file_path));
+        print_stream_ = std::move(file_print_stream);
     }
 
     return kSuccess;

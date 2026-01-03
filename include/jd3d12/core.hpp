@@ -643,7 +643,7 @@ enum EnvironmentFlags : uint32_t
     At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogDebug              = 0x04u,
-    /** Enables logging to a file.
+    /** Enables logging to a text file.
 
     File path must be specified in EnvironmentDesc::log_file_path.
 
@@ -731,6 +731,11 @@ struct EnvironmentDesc
     */
     uint32_t log_severity = kLogSeverityMinWarning;
     /** \brief Path to destination text file that will be created and used for logging.
+
+    If the file exists, it will be overwritten.
+    If opening the file fails, the entire creation of the #Environment object fails.
+    The file is written in UTF-16 Little Endian format with BOM header at the beginning and Unix-style
+    `"\n"` line endings.
 
     This parameter should be specified if and only if #kEnvironmentFlagLogFile is specified.
     */
