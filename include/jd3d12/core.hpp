@@ -624,24 +624,30 @@ enum EnvironmentFlags : uint32_t
 {
     /** Enables logging to standard output stream (e.g. system console).
 
-    At most `kEnvironmentFlagLog*` can be used.
+    At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogStandardOutput     = 0x01u,
     /** Enables logging to standard error stream (e.g. system console).
 
-    At most `kEnvironmentFlagLog*` can be used.
+    At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogStandardError      = 0x02u,
     /** Enables logging to debugger output, using `OutputDebugStringW` function.
 
-    At most `kEnvironmentFlagLog*` can be used.
+    Such messages can be observed in the Output panel of the debugger (if a debugger is attached)
+    or using an external tool, like "dbgview64.exe" from SysInternals Suite.
+
+    Warning! This loggic mechanism is know to be very slow, so with large number of messages,
+    it can slow down the application significantly.
+
+    At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogDebug              = 0x04u,
     /** Enables logging to a file.
 
     File path must be specified in EnvironmentDesc::log_file_path.
 
-    At most `kEnvironmentFlagLog*` can be used.
+    At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogFile               = 0x08u,
     /** Bit mask that covers all `kEnvironmentFlagLog*`.
