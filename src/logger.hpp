@@ -23,85 +23,7 @@
 namespace jd3d12
 {
 
-// Abstract base class.
-// Derived class must implement at least first or second version of Print method
-// and share inherited ones with:
-// using PrintStream::Print;
-class PrintStream
-{
-public:
-    virtual ~PrintStream() = default;
-
-    // Default implementation copies to a temporary null-terminated string and rediects it to Print(str).
-    virtual void Print(const wchar_t* str, size_t str_len);
-    // Default implementation calculates length and redirects to Print(str, str_len).
-    virtual void Print(const wchar_t* str);
-    // Default implementation redirects to Print(str, str_len).
-    virtual void Print(const std::wstring& str);
-    // Default implementation formats string in memory and redirects it to Print(str, str_len).
-    virtual void VPrintF(const wchar_t* format, va_list arg_list);
-    // Redirects to Print(format, arg_list).
-    void PrintF(const wchar_t* format, ...);
-
-protected:
-    PrintStream() = default;
-
-private:
-    JD3D12_NO_COPY_NO_MOVE_CLASS(PrintStream);
-};
-
-// Prints to standard output.
-class ConsolePrintStream : public PrintStream
-{
-public:
-    ConsolePrintStream() = default;
-    using PrintStream::Print;
-    virtual void Print(const wchar_t* str, size_t str_len);
-    virtual void Print(const wchar_t* str);
-    virtual void VPrintF(const wchar_t* format, va_list arg_list);
-
-private:
-    JD3D12_NO_COPY_NO_MOVE_CLASS(ConsolePrintStream);
-};
-
-// Prints to file.
-class FilePrintStream : public PrintStream
-{
-public:
-    // Initializes object with empty state.
-    FilePrintStream();
-    // Opens file during initialization.
-    FilePrintStream(const wchar_t* file_path, const wchar_t* mode);
-    // Automatically closes file.
-    ~FilePrintStream();
-
-    // mode: Like in fopen, e.g. "wb", "a".
-    bool Open(const wchar_t* file_path, const wchar_t* mode);
-    void Close();
-    bool IsOpened() const { return file_ != nullptr; }
-
-    using PrintStream::Print;
-    virtual void Print(const wchar_t* str, size_t str_len);
-    virtual void Print(const wchar_t* str);
-    virtual void VPrintF(const wchar_t* format, va_list arg_list);
-
-private:
-    FILE* file_;
-
-    JD3D12_NO_COPY_NO_MOVE_CLASS(FilePrintStream);
-};
-
-// Prints to OutputDebugString.
-class DebugPrintStream : public PrintStream
-{
-public:
-    DebugPrintStream() = default;
-    using PrintStream::Print;
-    virtual void Print(const wchar_t* str);
-
-private:
-    JD3D12_NO_COPY_NO_MOVE_CLASS(DebugPrintStream);
-};
+class PrintStream;
 
 class Logger
 {
@@ -110,8 +32,8 @@ public:
     // Returns error if parameters are invalid.
     static Result IsNeeded(const EnvironmentDesc& env_desc, bool& out_is_needed);
 
-    Logger() = default;
-    ~Logger() = default;
+    Logger();
+    ~Logger();
     Result Init(const EnvironmentDesc& env_desc);
 
     void Log(LogSeverity severity, const wchar_t* format, ...);

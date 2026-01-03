@@ -1516,7 +1516,7 @@ Result DeviceImpl::Init()
         // Ignoring the result.
     }
 
-    JD3D12_LOG(kLogSeverityInfo, L"Creating Device 0x%016" PRIXPTR " \"%s\": flags=0x%08X for GPU \"%s\"",
+    JD3D12_LOG(kLogSeverityInfo, L"Creating Device 0x%016" PRIXPTR " \"%s\": flags=0x%X for GPU \"%s\"",
         uintptr_t(GetInterface()),
         EnsureNonNullString(desc_.name), desc_.flags, adapter_desc.Description);
 
@@ -2259,7 +2259,7 @@ Result EnvironmentImpl::Init()
         JD3D12_RETURN_IF_FAILED(logger_->Init(desc_));
     }
 
-    JD3D12_LOG(kLogSeverityInfo, L"Creating Environment 0x%016" PRIXPTR ": flags=0x%08X",
+    JD3D12_LOG(kLogSeverityInfo, L"Creating Environment 0x%016" PRIXPTR ": flags=0x%X",
         uintptr_t(GetInterface()), desc_.flags);
 
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc_.d3d12_dll_path),

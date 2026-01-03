@@ -17,6 +17,107 @@ namespace jd3d12
 {
 
 ////////////////////////////////////////////////////////////////////////////////
+// class definitions
+
+// Abstract base class.
+// Derived class must implement at least first or second version of Print method
+// and share inherited ones with:
+// using PrintStream::Print;
+class PrintStream
+{
+public:
+    virtual ~PrintStream() = default;
+
+    // Default implementation copies to a temporary null-terminated string and rediects it to Print(str).
+    virtual void Print(const wchar_t* str, size_t str_len);
+    // Default implementation calculates length and redirects to Print(str, str_len).
+    virtual void Print(const wchar_t* str);
+    // Default implementation redirects to Print(str, str_len).
+    virtual void Print(const std::wstring& str);
+    // Default implementation formats string in memory and redirects it to Print(str, str_len).
+    virtual void VPrintF(const wchar_t* format, va_list arg_list);
+    // Redirects to Print(format, arg_list).
+    void PrintF(const wchar_t* format, ...);
+
+protected:
+    PrintStream() = default;
+
+private:
+    JD3D12_NO_COPY_NO_MOVE_CLASS(PrintStream);
+};
+
+// Prints to standard output or standard error.
+class StandardOutputPrintStream : public PrintStream
+{
+public:
+    StandardOutputPrintStream(bool use_standard_error)
+        : use_standard_error_{use_standard_error}
+    {
+    }
+    using PrintStream::Print;
+    virtual void Print(const wchar_t* str, size_t str_len);
+    virtual void Print(const wchar_t* str);
+    virtual void VPrintF(const wchar_t* format, va_list arg_list);
+
+private:
+    const bool use_standard_error_ = false;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StandardOutputPrintStream);
+};
+
+class StandardErrorPrintStream : public PrintStream
+{
+public:
+    StandardErrorPrintStream() = default;
+    using PrintStream::Print;
+    virtual void Print(const wchar_t* str, size_t str_len);
+    virtual void Print(const wchar_t* str);
+    virtual void VPrintF(const wchar_t* format, va_list arg_list);
+
+private:
+    JD3D12_NO_COPY_NO_MOVE_CLASS(StandardErrorPrintStream);
+};
+
+// Prints to file.
+class FilePrintStream : public PrintStream
+{
+public:
+    // Initializes object with empty state.
+    FilePrintStream();
+    // Opens file during initialization.
+    FilePrintStream(const wchar_t* file_path, const wchar_t* mode);
+    // Automatically closes file.
+    ~FilePrintStream();
+
+    // mode: Like in fopen, e.g. "wb", "a".
+    bool Open(const wchar_t* file_path, const wchar_t* mode);
+    void Close();
+    bool IsOpened() const { return file_ != nullptr; }
+
+    using PrintStream::Print;
+    virtual void Print(const wchar_t* str, size_t str_len);
+    virtual void Print(const wchar_t* str);
+    virtual void VPrintF(const wchar_t* format, va_list arg_list);
+
+private:
+    FILE* file_;
+
+    JD3D12_NO_COPY_NO_MOVE_CLASS(FilePrintStream);
+};
+
+// Prints to OutputDebugString.
+class DebugPrintStream : public PrintStream
+{
+public:
+    DebugPrintStream() = default;
+    using PrintStream::Print;
+    virtual void Print(const wchar_t* str);
+
+private:
+    JD3D12_NO_COPY_NO_MOVE_CLASS(DebugPrintStream);
+};
+
+////////////////////////////////////////////////////////////////////////////////
 // class PrintStream
 
 void PrintStream::Print(const wchar_t* str)
@@ -69,22 +170,22 @@ void PrintStream::PrintF(const wchar_t* format, ...)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// class ConsolePrintStream
+// class StandardOutputPrintStream
 
-void ConsolePrintStream::Print(const wchar_t* str, size_t str_len)
+void StandardOutputPrintStream::Print(const wchar_t* str, size_t str_len)
 {
     JD3D12_ASSERT(str_len <= INT_MAX);
-    ::wprintf(L"%.*s", (int)str_len, str);
+    ::fwprintf(use_standard_error_ ? stderr : stdout, L"%.*s", (int)str_len, str);
 }
 
-void ConsolePrintStream::Print(const wchar_t* str)
+void StandardOutputPrintStream::Print(const wchar_t* str)
 {
-    ::wprintf(L"%s", str);
+    ::fwprintf(use_standard_error_ ? stderr : stdout, L"%s", str);
 }
 
-void ConsolePrintStream::VPrintF(const wchar_t* format, va_list arg_list)
+void StandardOutputPrintStream::VPrintF(const wchar_t* format, va_list arg_list)
 {
-    ::vwprintf(format, arg_list);
+    ::vfwprintf(use_standard_error_ ? stderr : stdout, format, arg_list);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -186,17 +287,27 @@ Result Logger::IsNeeded(const EnvironmentDesc& env_desc, bool& out_is_needed)
     return kSuccess;
 }
 
+Logger::Logger()
+{
+    // Empty.
+}
+
+Logger::~Logger()
+{
+    // Empty.
+}
+
 Result Logger::Init(const EnvironmentDesc& env_desc)
 {
     severity_mask_ = env_desc.log_severity;
 
     if((env_desc.flags & kEnvironmentFlagLogStandardOutput) != 0)
     {
-        print_stream_ = std::make_unique<ConsolePrintStream>();
+        print_stream_ = std::make_unique<StandardOutputPrintStream>(false);
     }
     else if((env_desc.flags & kEnvironmentFlagLogStandardError) != 0)
     {
-        // TODO
+        print_stream_ = std::make_unique<StandardOutputPrintStream>(true);
     }
     else if((env_desc.flags & kEnvironmentFlagLogDebug) != 0)
     {
