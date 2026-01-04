@@ -436,7 +436,7 @@ public:
     Result CompileShaderFromMemory(const ShaderCompilationParams& params, const wchar_t* name,
         ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
     Result CompileShaderFromFile(const ShaderCompilationParams& params,
-        const wchar_t* hlsl_source_file_name, ShaderCompilationResult*& out_result);
+        const wchar_t* hlsl_source_file_path, ShaderCompilationResult*& out_result);
 
 private:
     Environment* const interface_obj_;
@@ -1067,6 +1067,9 @@ Result DeviceImpl::CreateBufferFromFile(const BufferDesc& desc, const wchar_t* i
 {
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(initial_data_file_path), "initial_data_file_path cannot be null or empty.");
 
+    JD3D12_LOG(kLogSeverityInfo, L"Loading buffer initial data from file \"%s\"",
+        initial_data_file_path);
+
     char* data_ptr = nullptr;
     size_t data_size = 0;
     JD3D12_RETURN_IF_FAILED(LoadFile(initial_data_file_path, data_ptr, data_size, desc.size));
@@ -1099,6 +1102,8 @@ Result DeviceImpl::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* b
     Shader*& out_shader)
 {
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(bytecode_file_path), "bytecode_file_path cannot be null or empty.");
+
+    JD3D12_LOG(kLogSeverityInfo, L"Loading shader bytecode from file \"%s\"", bytecode_file_path);
 
     char* data_ptr = nullptr;
     size_t data_size = 0;
@@ -2474,17 +2479,20 @@ Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& p
 }
 
 Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& params,
-    const wchar_t* hlsl_source_file_name, ShaderCompilationResult*& out_result)
+    const wchar_t* hlsl_source_file_path, ShaderCompilationResult*& out_result)
 {
-    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(hlsl_source_file_name),
-        "hlsl_source_file_name cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(hlsl_source_file_path),
+        "hlsl_source_file_path cannot be null or empty.");
+
+    JD3D12_LOG(kLogSeverityInfo, L"Loading shader source from file \"%s\"",
+        hlsl_source_file_path);
 
     char* source_ptr = nullptr;
     size_t source_size = 0;
-    JD3D12_RETURN_IF_FAILED(LoadFile(hlsl_source_file_name, source_ptr, source_size));
+    JD3D12_RETURN_IF_FAILED(LoadFile(hlsl_source_file_path, source_ptr, source_size));
     std::unique_ptr<char[]> source{ source_ptr };
 
-    return CompileShaderFromMemory(params, hlsl_source_file_name,
+    return CompileShaderFromMemory(params, hlsl_source_file_path,
         ConstDataSpan{source_ptr, source_size}, out_result);
 }
 
