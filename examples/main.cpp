@@ -61,11 +61,11 @@ int main(int argc, char** argv)
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     EnvironmentDesc env_desc{};
-    env_desc.flags = kEnvironmentFlagLogFile
+    env_desc.flags = kEnvironmentFlagLogStandardOutput
         | kEnvironmentFlagEnableD3d12DebugLayer
         | kEnvironmentFlagEnableD3d12GpuBasedValidation;
     env_desc.log_severity = kLogSeverityAll;
-    env_desc.log_file_path = L"log.log";
+    //env_desc.log_file_path = L"log.log";
     assert(Succeeded(CreateEnvironment(env_desc, g_env)));
     env.reset(g_env);
 

@@ -2338,7 +2338,15 @@ Result EnvironmentImpl::Init()
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc_.dxc_dll_path),
         "EnvironmentDesc::dxc_dll_path cannot be null or empty.");
 
-    JD3D12_RETURN_IF_FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgi_factory6_)));
+    const bool enable_debug_layer = (desc_.flags & kEnvironmentFlagEnableD3d12DebugLayer) != 0;
+    UINT create_factory_flags = 0;
+    if(enable_debug_layer)
+    {
+        JD3D12_RETURN_IF_FAILED(EnableDebugLayer());
+        create_factory_flags = DXGI_CREATE_FACTORY_DEBUG;
+    }
+
+    JD3D12_RETURN_IF_FAILED(CreateDXGIFactory2(create_factory_flags, IID_PPV_ARGS(&dxgi_factory6_)));
 
     for(UINT adapter_index = 0; ; ++adapter_index)
     {
@@ -2357,11 +2365,6 @@ Result EnvironmentImpl::Init()
     }
 
     JD3D12_ASSERT_OR_RETURN(selected_adapter_index_ != UINT32_MAX, "Adapter not found.");
-
-    if((desc_.flags & kEnvironmentFlagEnableD3d12DebugLayer) != 0)
-    {
-        JD3D12_RETURN_IF_FAILED(EnableDebugLayer());
-    }
 
     JD3D12_RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
 

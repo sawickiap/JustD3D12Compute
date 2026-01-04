@@ -13,6 +13,7 @@
 #include <jd3d12/utils.hpp>
 #include <jd3d12/types.hpp>
 
+// The place where you use this macro must have `GetLogger()` available.
 #define JD3D12_LOG(severity, format, ...) \
     do { \
         Logger* const logger = GetLogger(); \
