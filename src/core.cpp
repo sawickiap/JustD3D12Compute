@@ -624,6 +624,8 @@ BufferImpl::BufferImpl(Buffer* interface_obj, DeviceImpl* device, const BufferDe
 
 BufferImpl::~BufferImpl()
 {
+    JD3D12_LOG(kLogSeverityInfo, L"Destroying Buffer 0x%016" PRIXPTR, uintptr_t(interface_obj_));
+
     DeviceImpl* const dev = GetDevice();
 
     HRESULT hr = dev->WaitForBufferUnused(this);
@@ -738,6 +740,8 @@ ShaderImpl::ShaderImpl(Shader* interface_obj, DeviceImpl* device, const ShaderDe
 
 ShaderImpl::~ShaderImpl()
 {
+    JD3D12_LOG(kLogSeverityInfo, L"Destroying Shader 0x%016" PRIXPTR, uintptr_t(interface_obj_));
+
     DeviceImpl* const dev = GetDevice();
     HRESULT hr = dev->WaitForShaderUnused(this);
     JD3D12_ASSERT(SUCCEEDED(hr) && "Failed to wait for shader unused in Shader destructor.");
@@ -996,8 +1000,6 @@ DeviceImpl::DeviceImpl(Device* interface_obj, EnvironmentImpl* env, const Device
 
 DeviceImpl::~DeviceImpl()
 {
-    JD3D12_LOG(kLogSeverityInfo, L"Destroying Device 0x%016" PRIXPTR, uintptr_t(GetInterface()));
-
     if(command_list_)
     {
         HRESULT hr = EnsureCommandListState(CommandListState::kNone);
@@ -1006,6 +1008,9 @@ DeviceImpl::~DeviceImpl()
 
     DestroyStaticShaders();
     DestroyStaticBuffers();
+
+    // Log device destroy only after static resources have been destroyed.
+    JD3D12_LOG(kLogSeverityInfo, L"Destroying Device 0x%016" PRIXPTR, uintptr_t(GetInterface()));
 
     JD3D12_ASSERT(buffer_count_ == 0 && "Destroying Device object while there are still Buffer objects not destroyed.");
     JD3D12_ASSERT(shader_count_ == 0 && "Destroying Device object while there are still Shader objects not destroyed.");
@@ -1039,6 +1044,18 @@ Result DeviceImpl::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan 
 
     auto buf = std::unique_ptr<Buffer>{new Buffer{}};
     buf->impl_ = new BufferImpl{ buf.get(), this, desc };
+
+    if(initial_data.size > 0)
+    {
+        JD3D12_LOG(kLogSeverityInfo, L"Creating Buffer 0x%016" PRIXPTR " \"%s\": flags=0x%X, size=%zu, initial_data.size=%zu",
+            uintptr_t(buf.get()), EnsureNonNullString(desc.name), desc.flags, desc.size, initial_data.size);
+    }
+    else
+    {
+        JD3D12_LOG(kLogSeverityInfo, L"Creating Buffer 0x%016" PRIXPTR " \"%s\": flags=0x%X, size=%zu",
+            uintptr_t(buf.get()), EnsureNonNullString(desc.name), desc.flags, desc.size);
+    }
+
     JD3D12_RETURN_IF_FAILED(buf->GetImpl()->Init(initial_data));
 
     out_buffer = buf.release();
@@ -1068,6 +1085,10 @@ Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan 
 
     auto shader = std::unique_ptr<Shader>{new Shader{}};
     shader->impl_ = new ShaderImpl{ shader.get(), this, desc };
+
+    JD3D12_LOG(kLogSeverityInfo, L"Creating Shader 0x%016" PRIXPTR " \"%s\"",
+        uintptr_t(shader.get()), EnsureNonNullString(desc.name));
+
     JD3D12_RETURN_IF_FAILED(shader->GetImpl()->Init(bytecode));
 
     out_shader = shader.release();
@@ -2413,6 +2434,9 @@ Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& p
         "ShaderCompilationParams::entry_point cannot be null or empty.");
     JD3D12_ASSERT_OR_RETURN(hlsl_source.data != nullptr && hlsl_source.size > 0,
         "HLSL source data cannot be null or empty.");
+
+    JD3D12_LOG(kLogSeverityInfo, L"Compiling shader \"%s\": flags=0x%X, entry_point=%s",
+        name, params.flags, params.entry_point);
 
     // Build the list of arguments.
     std::vector<std::wstring> args;
