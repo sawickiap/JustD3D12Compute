@@ -252,6 +252,15 @@ TEST_CASE("Format description", "[utils][format]")
     CHECK(desc->is_simple == 1);
 }
 
+TEST_CASE("Custom log message", "[logger]")
+{
+    g_env->Log(kLogSeverityWarning, L"Test custom warning message");
+
+    uint32_t u = UINT32_MAX;
+    const wchar_t* s = L"Foo";
+    g_env->LogF(kLogSeverityError, L"Test custom error message with hex=0x%08X, string=%s", u, s);
+}
+
 TEST_CASE("Typed buffer", "[gpu][buffer][hlsl]")
 {
     std::unique_ptr<Shader> typed_shader;

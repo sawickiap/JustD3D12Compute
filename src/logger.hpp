@@ -18,7 +18,7 @@
     do { \
         Logger* const logger = GetLogger(); \
         if(logger != nullptr) \
-            logger->Log(severity, format, __VA_ARGS__); \
+            logger->LogF(severity, format, __VA_ARGS__); \
     } while(false)
 
 namespace jd3d12
@@ -37,7 +37,9 @@ public:
     ~Logger();
     Result Init(const EnvironmentDesc& env_desc);
 
-    void Log(LogSeverity severity, const wchar_t* format, ...);
+    void Log(LogSeverity severity, const wchar_t* message);
+    void VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list);
+    void LogF(LogSeverity severity, const wchar_t* format, ...);
 
 private:
     uint32_t severity_mask_ = 0;

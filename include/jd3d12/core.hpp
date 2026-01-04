@@ -756,6 +756,22 @@ public:
     /// Returns `ID3D12DeviceFactory*`.
     void* GetNativeDeviceFactory() const noexcept;
 
+    /** \brief Posts a custom message to the logging system.
+
+    If no logging was enabled using `kEnvironmentFlagLog*` flags, or specified `severity` was not included
+    in EnvironmentDesc::log_severity, the message is ignored.
+    */
+    void Log(LogSeverity severity, const wchar_t* message);
+    /** \brief Posts a custom message to the logging system with string formatting.
+
+    If no logging was enabled using `kEnvironmentFlagLog*` flags, or specified `severity` was not included
+    in EnvironmentDesc::log_severity, the message is ignored.
+
+    Formatting string should follow format as in `wprintf` function, e.g. `%u` means `unsigned`,
+    `%s` means `const wchar_t*` string.
+    */
+    void LogF(LogSeverity severity, const wchar_t* format, ...);
+
     /** \brief Creates the main #Device object, initializing selected GPU to prepare it for work.
     */
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);

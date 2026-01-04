@@ -277,22 +277,35 @@ Result Logger::Init(const EnvironmentDesc& env_desc)
     return kSuccess;
 }
 
-void Logger::Log(LogSeverity severity, const wchar_t* format, ...)
+void Logger::Log(LogSeverity severity, const wchar_t* message)
 {
     if((severity & severity_mask_) == 0)
         return;
     if(!print_stream_)
         return;
 
-    va_list arg_list;
-    va_start(arg_list, format);
-    const std::wstring msg = SVPrintF(format, arg_list);
-    va_end(arg_list);
-
     const wchar_t* const severity_str = GetLogSeverityString(severity);
 
     std::lock_guard<std::mutex> lock(print_stream_mutex_);
-    print_stream_->PrintF(L"[%s] %s\n", severity_str, msg.c_str());
+    print_stream_->PrintF(L"[%s] %s\n", severity_str, message);
+}
+
+void Logger::VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list)
+{
+    if((severity & severity_mask_) == 0)
+        return;
+    if(!print_stream_)
+        return;
+
+    Log(severity, SVPrintF(format, arg_list).c_str());
+}
+
+void Logger::LogF(LogSeverity severity, const wchar_t* format, ...)
+{
+    va_list arg_list;
+    va_start(arg_list, format);
+    VLogF(severity, format, arg_list);
+    va_end(arg_list);
 }
 
 } // namespace jd3d12

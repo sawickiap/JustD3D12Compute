@@ -424,6 +424,9 @@ public:
     ~EnvironmentImpl();
     Result Init();
 
+    void Log(LogSeverity severity, const wchar_t* message);
+    void VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list);
+
     Environment* GetInterface() const noexcept { return interface_obj_; }
     Logger* GetLogger() const noexcept { return logger_.get(); }
     IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
@@ -1647,7 +1650,7 @@ void DeviceImpl::DebugLayerMessageCallback(
     LPCSTR pDescription)
 {
     const LogSeverity log_severity = D3d12MessageSeverityToLogSeverity(Severity);
-    GetLogger()->Log(log_severity, L"%S [%s #%u]", pDescription,
+    GetLogger()->LogF(log_severity, L"%S [%s #%u]", pDescription,
         GetD3d12MessageCategoryString(Category), uint32_t(ID));
 }
 
@@ -2406,6 +2409,18 @@ Result EnvironmentImpl::Init()
     desc_.dxc_dll_path = nullptr;
 
     return kSuccess;
+}
+
+void EnvironmentImpl::Log(LogSeverity severity, const wchar_t* message)
+{
+    if(logger_)
+        logger_->Log(severity, message);
+}
+
+void EnvironmentImpl::VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list)
+{
+    if(logger_)
+        logger_->VLogF(severity, format, arg_list);
 }
 
 EnvironmentImpl::~EnvironmentImpl()
@@ -3168,6 +3183,22 @@ void* Environment::GetNativeDeviceFactory() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
     return impl_->GetDeviceFactory();
+}
+
+void Environment::Log(LogSeverity severity, const wchar_t* message)
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+    impl_->Log(severity, message);
+}
+
+void jd3d12::Environment::LogF(LogSeverity severity, const wchar_t* format, ...)
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+
+    va_list arg_list;
+    va_start(arg_list, format);
+    impl_->VLogF(severity, format, arg_list);
+    va_end(arg_list);
 }
 
 Result Environment::CreateDevice(const DeviceDesc& desc, Device*& out_device)
