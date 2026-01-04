@@ -29,13 +29,11 @@ class PrintStream;
 class Logger
 {
 public:
-    // Sets out_is_needed depending on whether logger is needed with given parameters.
-    // Returns error if parameters are invalid.
-    static Result IsNeeded(const EnvironmentDesc& env_desc, bool& out_is_needed);
-
     Logger();
     ~Logger();
     Result Init(const EnvironmentDesc& env_desc);
+
+    Logger* GetLogger() noexcept { return this; }
 
     void Log(LogSeverity severity, const wchar_t* message);
     void VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list);

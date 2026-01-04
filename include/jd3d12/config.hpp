@@ -25,13 +25,17 @@
 
     Define it as empty for maximum performance.
 
-    Default implementation performs #JD3D12_ASSERT and, in case of failure, logs the message (TODO) and calls
+    Default implementation performs #JD3D12_ASSERT and, in case of failure, logs the message and calls
     `return kErrorInvalidArgument`.
     */
     #define JD3D12_ASSERT_OR_RETURN(expr, message) \
         do { \
             const bool ok__ = (expr); \
             JD3D12_ASSERT(ok__ && message); \
-            if(!ok__) return kErrorInvalidArgument; \
+            if(!ok__) \
+            { \
+                JD3D12_LOG(kLogSeverityAssert, L"%s(%d): Assertion %s failed: %s", L"" __FILE__, __LINE__, L"" #expr, (const wchar_t*)(message)); \
+                return kErrorInvalidArgument; \
+            } \
         } while(false)
 #endif

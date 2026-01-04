@@ -224,24 +224,6 @@ void DebugPrintStream::Print(const wchar_t* str)
 ////////////////////////////////////////////////////////////////////////////////
 // class Logger
 
-Result Logger::IsNeeded(const EnvironmentDesc& env_desc, bool& out_is_needed)
-{
-    out_is_needed = false;
-
-    if((env_desc.flags & kEnvironmentMaskLog) == 0 || env_desc.log_severity == 0)
-        return kSuccess;
-
-    const uint32_t log_bits_set = CountBitsSet(env_desc.flags & kEnvironmentMaskLog);
-    JD3D12_ASSERT_OR_RETURN(log_bits_set <= 1, "At most one kEnvironmentFlagLog* can be specified.");
-
-    JD3D12_ASSERT_OR_RETURN(((env_desc.flags & kEnvironmentFlagLogFile) != 0)
-        == !IsStringEmpty(env_desc.log_file_path),
-        "EnvironmentDesc::log_file_path should be specified if and only if kEnvironmentFlagLogFile is specified.");
-
-    out_is_needed = log_bits_set > 0;
-    return kSuccess;
-}
-
 Logger::Logger()
 {
     // Empty.

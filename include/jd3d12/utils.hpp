@@ -269,10 +269,10 @@ struct FormatDesc
     unsigned active_component_count : 4;
     /// 1 if the format is simple, so that its binary structure can be fully inferred from the members
     /// of this structure.
+    /// Still 1 for "sRGB" and "Typeless" formats.
     /// 0 for non-typical formats like block-compressed (BC), SharedExp, having its components
     /// interpreted as "D", "S", "A", "X", or out for order ("BGRA") instead of simply "RGBA".
-    /// 1 for "sRGB" and "Typeless" formats.
-    /// 0 for any types that have active_component_count < component_count.
+    /// 0 for any types that have `active_component_count < component_count`.
     unsigned is_simple : 1;
 };
 

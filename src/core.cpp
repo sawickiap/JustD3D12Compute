@@ -396,10 +396,11 @@ private:
 class ShaderCompiler
 {
 public:
-    ShaderCompiler() = default;
+    ShaderCompiler(EnvironmentImpl& env) : env_{env} { }
     ~ShaderCompiler() = default;
     Result Init(const EnvironmentDesc& env_desc);
 
+    Logger* GetLogger() const noexcept;
     IDxcUtils* GetUtils() const noexcept { return utils_; }
     IDxcCompiler3* GetCompiler3() const noexcept { return compiler3_; }
     IDxcIncludeHandler* GetIncludeHandler() const noexcept { return include_handler_; }
@@ -408,6 +409,7 @@ public:
         const wchar_t* source_name, std::vector<std::wstring>& out_arguments);
 
 private:
+    EnvironmentImpl& env_;
     HMODULE module_ = nullptr;
     DxcCreateInstanceProc create_instance_proc_ = nullptr;
     CComPtr<IDxcUtils> utils_;
@@ -454,6 +456,9 @@ private:
     ShaderCompiler shader_compiler_;
 
     Result EnableDebugLayer();
+    // Sets out_is_needed depending on whether logger is needed with given parameters.
+    // Returns error if parameters are invalid.
+    Result IsLoggerNeeded(bool& out_is_needed);
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(EnvironmentImpl)
 };
@@ -523,9 +528,9 @@ Result BufferImpl::InitParameters(size_t initial_data_size)
 {
     JD3D12_ASSERT_OR_RETURN((desc_.flags &
         (kBufferUsageMaskCpu | kBufferUsageMaskCopy | kBufferUsageMaskShader)) != 0,
-        "At least one usage flag must be specified - a buffer with no usage flags makes no sense.");
+        L"At least one usage flag must be specified - a buffer with no usage flags makes no sense.");
     JD3D12_ASSERT_OR_RETURN(CountBitsSet(desc_.flags & kBufferUsageMaskCpu) <= 1,
-        "kBufferUsageFlagCpu* are mutually exclusive - you can specify at most 1.");
+        L"kBufferUsageFlagCpu* are mutually exclusive - you can specify at most 1.");
 
     const bool is_typed = (desc_.flags & kBufferFlagTyped) != 0;
     const bool is_structured = (desc_.flags & kBufferFlagStructured) != 0;
@@ -533,39 +538,41 @@ Result BufferImpl::InitParameters(size_t initial_data_size)
     const uint32_t type_bit_count = CountBitsSet(desc_.flags
         & (kBufferFlagTyped | kBufferFlagStructured | kBufferFlagByteAddress));
     JD3D12_ASSERT_OR_RETURN(type_bit_count <= 1,
-        "kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress are mutually exclusive - you can specify at most 1.");
+        L"kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress are mutually exclusive - you can specify at most 1.");
 
-    JD3D12_ASSERT_OR_RETURN(desc_.size > 0 && desc_.size % 4 == 0, "Buffer size must be greater than 0 and a multiple of 4.");
-    JD3D12_ASSERT_OR_RETURN(initial_data_size <= desc_.size, "initial_data_size exceeds buffer size.");
+    JD3D12_ASSERT_OR_RETURN(desc_.size > 0 && desc_.size % 4 == 0,
+        L"Buffer size must be greater than 0 and a multiple of 4.");
+    JD3D12_ASSERT_OR_RETURN(initial_data_size <= desc_.size,
+        L"initial_data_size exceeds buffer size.");
 
     if(initial_data_size > 0)
     {
         // TODO Remove this limitation in the future.
         JD3D12_ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0,
-            "Buffer initial data can only be used with kBufferUsageCpuSequentialWrite.");
+            L"Buffer initial data can only be used with kBufferUsageCpuSequentialWrite.");
     }
 
     JD3D12_ASSERT_OR_RETURN(is_typed == (desc_.element_format != Format::kUnknown),
-        "element_format should be set if and only if the buffer is used as typed buffer.");
+        L"element_format should be set if and only if the buffer is used as typed buffer.");
     if(is_typed)
     {
         const FormatDesc* format_desc = GetFormatDesc(desc_.element_format);
         JD3D12_ASSERT_OR_RETURN(format_desc != nullptr && format_desc->bits_per_element > 0
             && format_desc->bits_per_element % 8 == 0,
-            "element_format must be a valid format with size multiple of 8 bits.");
+            L"element_format must be a valid format with size multiple of 8 bits.");
     }
 
     JD3D12_ASSERT_OR_RETURN(is_structured == (desc_.structure_size > 0),
-        "structure_size should be set if and only if the buffer is used as structured buffer.");
+        L"structure_size should be set if and only if the buffer is used as structured buffer.");
     if(is_structured)
     {
-        JD3D12_ASSERT_OR_RETURN(desc_.structure_size % 4 == 0, "structure_size must be a multiple of 4.");
+        JD3D12_ASSERT_OR_RETURN(desc_.structure_size % 4 == 0, L"structure_size must be a multiple of 4.");
     }
 
     const size_t element_size = GetElementSize();
     if(element_size > 0)
     {
-        JD3D12_ASSERT_OR_RETURN(desc_.size % element_size == 0, "Buffer size must be a multiple of element size.");
+        JD3D12_ASSERT_OR_RETURN(desc_.size % element_size == 0, L"Buffer size must be a multiple of element size.");
     }
 
     // Choose strategy.
@@ -574,23 +581,23 @@ Result BufferImpl::InitParameters(size_t initial_data_size)
         strategy_ = BufferStrategy::kDefault;
         // kBufferUsageFlagCpuSequentialWrite is allowed.
         JD3D12_ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuRead) == 0,
-            "kBufferUsageFlagCpuRead cannot be used with kBufferUsageFlagShaderRWResource.");
+            L"kBufferUsageFlagCpuRead cannot be used with kBufferUsageFlagShaderRWResource.");
     }
     else if((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0)
     {
         strategy_ = BufferStrategy::kUpload;
 
         JD3D12_ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopyDst) == 0,
-            "BufferUsageFlagCopyDst cannot be used with kBufferUsageFlagCpuSequentialWrite.");
+            L"BufferUsageFlagCopyDst cannot be used with kBufferUsageFlagCpuSequentialWrite.");
     }
     else if((desc_.flags & kBufferUsageFlagCpuRead) != 0)
     {
         strategy_ = BufferStrategy::kReadback;
 
         JD3D12_ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCopySrc) == 0,
-            "kBufferUsageFlagCopySrc cannot be used with kBufferUsageFlagCpuRead.");
+            L"kBufferUsageFlagCopySrc cannot be used with kBufferUsageFlagCpuRead.");
         JD3D12_ASSERT_OR_RETURN((desc_.flags & kBufferUsageMaskShader) == 0,
-            "kBufferUsageFlagShader* cannot be used with kBufferUsageFlagCpuRead.");
+            L"kBufferUsageFlagShader* cannot be used with kBufferUsageFlagCpuRead.");
     }
     else
     {
@@ -664,7 +671,7 @@ Result BufferImpl::Init(ConstDataSpan initial_data)
     if(initial_data.size > 0)
     {
         JD3D12_ASSERT_OR_RETURN(initial_data.data != nullptr,
-            "When initial_data.size > 0, initial_data pointer cannot be null.");
+            L"When initial_data.size > 0, initial_data pointer cannot be null.");
     }
 
     JD3D12_RETURN_IF_FAILED(InitParameters(initial_data.size));
@@ -698,7 +705,7 @@ Result BufferImpl::Init(ConstDataSpan initial_data)
     }
     CD3DX12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES{heap_type};
     const D3D12_RESOURCE_STATES initial_state = GetInitialState(heap_type);
-    JD3D12_RETURN_IF_FAILED(GetD3d12Device()->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE,
+    JD3D12_LOG_AND_RETURN_IF_FAILED(GetD3d12Device()->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE,
         &resource_desc, initial_state, nullptr, IID_PPV_ARGS(&resource_)));
 
     SetObjectName(resource_, desc_.name);
@@ -708,7 +715,7 @@ Result BufferImpl::Init(ConstDataSpan initial_data)
         || strategy_ == BufferStrategy::kGpuUpload
         || strategy_ == BufferStrategy::kReadback)
     {
-        JD3D12_RETURN_IF_FAILED(resource_->Map(0, nullptr, &persistently_mapped_ptr_));
+        JD3D12_LOG_AND_RETURN_IF_FAILED(resource_->Map(0, nullptr, &persistently_mapped_ptr_));
     }
 
     JD3D12_RETURN_IF_FAILED(WriteInitialData(initial_data));
@@ -722,7 +729,7 @@ Result BufferImpl::WriteInitialData(ConstDataSpan initial_data)
         return kFalse;
 
     JD3D12_ASSERT_OR_RETURN((desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0,
-        "Buffer doesn't have kBufferUsageFlagCpuSequentialWrite but initial data was specified.");
+        L"Buffer doesn't have kBufferUsageFlagCpuSequentialWrite but initial data was specified.");
 
     JD3D12_ASSERT(persistently_mapped_ptr_ != nullptr);
     memcpy(persistently_mapped_ptr_, initial_data.data, initial_data.size);
@@ -759,7 +766,7 @@ Result ShaderImpl::Init(ConstDataSpan bytecode)
     pso_desc.pRootSignature = dev->main_root_signature_->GetRootSignature();
     pso_desc.CS.pShaderBytecode = bytecode.data;
     pso_desc.CS.BytecodeLength = bytecode.size;
-    JD3D12_RETURN_IF_FAILED(dev->GetDevice()->CreateComputePipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_state_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(dev->GetDevice()->CreateComputePipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_state_)));
 
     SetObjectName(pipeline_state_, desc_.name);
     desc_.name = nullptr;
@@ -783,7 +790,7 @@ Result DescriptorHeap::Init(const wchar_t* device_name)
     desc.NumDescriptors = kMaxDescriptorCount;
     if(shader_visible_)
         desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    JD3D12_RETURN_IF_FAILED(d3d12_dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptor_heap_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(d3d12_dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptor_heap_)));
 
     SetObjectName(descriptor_heap_, device_name, shader_visible_
         ? L"Descriptor heap (shader-visible)"
@@ -901,11 +908,11 @@ Result MainRootSignature::Init()
     root_sig_desc.Desc_1_0.NumParameters = kTotalParamCount;
 
     ID3DBlob *root_sig_blob_ptr = nullptr, *error_blob_ptr = nullptr;
-    JD3D12_RETURN_IF_FAILED(D3D12SerializeVersionedRootSignature(&root_sig_desc, &root_sig_blob_ptr, &error_blob_ptr));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(D3D12SerializeVersionedRootSignature(&root_sig_desc, &root_sig_blob_ptr, &error_blob_ptr));
     CComPtr<ID3DBlob> root_sig_blob{root_sig_blob_ptr};
     CComPtr<ID3DBlob> error_blob{error_blob_ptr};
 
-    JD3D12_RETURN_IF_FAILED(GetD3d12Device()->CreateRootSignature(0, root_sig_blob->GetBufferPointer(),
+    JD3D12_LOG_AND_RETURN_IF_FAILED(GetD3d12Device()->CreateRootSignature(0, root_sig_blob->GetBufferPointer(),
         root_sig_blob->GetBufferSize(), IID_PPV_ARGS(&root_signature_)));
     SetObjectName(root_signature_, L"Main root signature");
 
@@ -1068,14 +1075,15 @@ Result DeviceImpl::CreateBufferFromMemory(const BufferDesc& desc, ConstDataSpan 
 Result DeviceImpl::CreateBufferFromFile(const BufferDesc& desc, const wchar_t* initial_data_file_path,
     Buffer*& out_buffer)
 {
-    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(initial_data_file_path), "initial_data_file_path cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(initial_data_file_path),
+        L"initial_data_file_path cannot be null or empty.");
 
     JD3D12_LOG(kLogSeverityInfo, L"Loading buffer initial data from file \"%s\"",
         initial_data_file_path);
 
     char* data_ptr = nullptr;
     size_t data_size = 0;
-    JD3D12_RETURN_IF_FAILED(LoadFile(initial_data_file_path, data_ptr, data_size, desc.size));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(LoadFile(initial_data_file_path, data_ptr, data_size, desc.size));
     std::unique_ptr<char[]> data{ data_ptr };
 
     return CreateBufferFromMemory(desc, ConstDataSpan{data_ptr, data_size}, out_buffer);
@@ -1087,7 +1095,7 @@ Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan 
     out_shader = nullptr;
 
     JD3D12_ASSERT_OR_RETURN(bytecode.data != nullptr && bytecode.size > 0,
-        "Shader bytecode cannot be null or empty.");
+        L"Shader bytecode cannot be null or empty.");
 
     auto shader = std::unique_ptr<Shader>{new Shader{}};
     shader->impl_ = new ShaderImpl{ shader.get(), this, desc };
@@ -1104,13 +1112,14 @@ Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan 
 Result DeviceImpl::CreateShaderFromFile(const ShaderDesc& desc, const wchar_t* bytecode_file_path,
     Shader*& out_shader)
 {
-    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(bytecode_file_path), "bytecode_file_path cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(bytecode_file_path),
+        L"bytecode_file_path cannot be null or empty.");
 
     JD3D12_LOG(kLogSeverityInfo, L"Loading shader bytecode from file \"%s\"", bytecode_file_path);
 
     char* data_ptr = nullptr;
     size_t data_size = 0;
-    JD3D12_RETURN_IF_FAILED(LoadFile(bytecode_file_path, data_ptr, data_size));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(LoadFile(bytecode_file_path, data_ptr, data_size));
 
     if(data_ptr == nullptr || data_size == 0)
         return kErrorUnexpected;
@@ -1128,7 +1137,7 @@ Result DeviceImpl::CompileAndCreateShaderFromMemory(const ShaderCompilationParam
         hlsl_source, result_ptr));
     std::unique_ptr<ShaderCompilationResult> result{ result_ptr };
 
-    JD3D12_RETURN_IF_FAILED(result->GetResult());
+    JD3D12_LOG_AND_RETURN_IF_FAILED(result->GetResult());
 
     const ConstDataSpan bytecode = result->GetBytecode();
     if(bytecode.size == 0)
@@ -1143,11 +1152,11 @@ Result DeviceImpl::CompileAndCreateShaderFromFile(const ShaderCompilationParams&
     ShaderCompilationResult* result_ptr = nullptr;
     JD3D12_RETURN_IF_FAILED(env_->CompileShaderFromFile(compilation_params, hlsl_source_file_path,
         result_ptr));
-    std::unique_ptr<ShaderCompilationResult> result{ result_ptr };
+    std::unique_ptr<ShaderCompilationResult> shader_compilation_result{ result_ptr };
 
-    JD3D12_RETURN_IF_FAILED(result->GetResult());
+    JD3D12_LOG_AND_RETURN_IF_FAILED(shader_compilation_result->GetResult());
 
-    const ConstDataSpan bytecode = result->GetBytecode();
+    const ConstDataSpan bytecode = shader_compilation_result->GetBytecode();
     if(bytecode.size == 0)
         return kErrorFail;
 
@@ -1158,20 +1167,23 @@ Result DeviceImpl::MapBuffer(BufferImpl& buf, Range byte_range, BufferFlags cpu_
     uint32_t command_flags)
 {
     out_data_ptr = nullptr;
-    JD3D12_ASSERT_OR_RETURN(buf.GetDevice() == this, "Buffer does not belong to this Device.");
-    JD3D12_ASSERT_OR_RETURN(!buf.is_user_mapped_, "Device::MapBuffer called twice. Nested mapping is not supported.");
-    JD3D12_ASSERT_OR_RETURN(buf.persistently_mapped_ptr_ != nullptr, "Cannot map this buffer.");
+    JD3D12_ASSERT_OR_RETURN(buf.GetDevice() == this,
+        L"Buffer does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(!buf.is_user_mapped_,
+        L"Device::MapBuffer called twice. Nested mapping is not supported.");
+    JD3D12_ASSERT_OR_RETURN(buf.persistently_mapped_ptr_ != nullptr,
+        L"Cannot map this buffer.");
     JD3D12_ASSERT_OR_RETURN(CountBitsSet(cpu_usage_flag &
         (kBufferUsageFlagCpuSequentialWrite | kBufferUsageFlagCpuRead)) == 1,
-        "cpu_usage_flag must be kBufferUsageFlagCpuSequentialWrite or kBufferUsageFlagCpuRead.");
+        L"cpu_usage_flag must be kBufferUsageFlagCpuSequentialWrite or kBufferUsageFlagCpuRead.");
     JD3D12_ASSERT_OR_RETURN((buf.desc_.flags & cpu_usage_flag) == cpu_usage_flag,
-        "Buffer was not created with the kBufferUsageFlagCpu* used for mapping.");
+        L"Buffer was not created with the kBufferUsageFlagCpu* used for mapping.");
     const bool is_reading = (buf.desc_.flags & kBufferUsageFlagCpuRead) != 0;
     const bool is_writing = (buf.desc_.flags & kBufferUsageFlagCpuSequentialWrite) != 0;
 
     byte_range = LimitRange(byte_range, buf.desc_.size);
-    JD3D12_ASSERT_OR_RETURN(byte_range.count > 0, "byte_range is empty.");
-    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf.GetSize(), "byte_range out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.count > 0, L"byte_range is empty.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf.GetSize(), L"byte_range out of bounds.");
 
     // If the buffer is being written or read to in the current command list, execute it and wait for it to finish.
     const uint32_t conflicting_usage_flags = is_writing
@@ -1202,17 +1214,17 @@ void DeviceImpl::UnmapBuffer(BufferImpl& buf)
 Result DeviceImpl::ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range, void* dst_memory,
     uint32_t command_flags)
 {
-    JD3D12_ASSERT_OR_RETURN(src_buf.GetDevice() == this, "Buffer does not belong to this Device.");
-    JD3D12_ASSERT_OR_RETURN(!src_buf.is_user_mapped_, "Cannot call this command while the buffer is mapped.");
+    JD3D12_ASSERT_OR_RETURN(src_buf.GetDevice() == this, L"Buffer does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(!src_buf.is_user_mapped_, L"Cannot call this command while the buffer is mapped.");
 
     src_byte_range = LimitRange(src_byte_range, src_buf.GetSize());
     if(src_byte_range.count == 0)
         return kFalse;
 
-    JD3D12_ASSERT_OR_RETURN(dst_memory != nullptr, "dst_memory cannot be null.");
+    JD3D12_ASSERT_OR_RETURN(dst_memory != nullptr, L"dst_memory cannot be null.");
     JD3D12_ASSERT_OR_RETURN(src_byte_range.first < src_buf.GetSize()
         && src_byte_range.first + src_byte_range.count <= src_buf.GetSize(),
-        "Source buffer region out of bounds.");
+        L"Source buffer region out of bounds.");
 
     // If the buffer is being written to in the current command list, execute it and wait for it to finish.
     // If it is only read, there is no hazard.
@@ -1237,17 +1249,17 @@ Result DeviceImpl::ReadBufferToMemory(BufferImpl& src_buf, Range src_byte_range,
 Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_buf, size_t dst_byte_offset,
     uint32_t command_flags)
 {
-    JD3D12_ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "Buffer does not belong to this Device.");
-    JD3D12_ASSERT_OR_RETURN(!dst_buf.is_user_mapped_, "Cannot call this command while the buffer is mapped.");
+    JD3D12_ASSERT_OR_RETURN(dst_buf.GetDevice() == this, L"Buffer does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(!dst_buf.is_user_mapped_, L"Cannot call this command while the buffer is mapped.");
 
     if(src_data.size == 0)
         return kFalse;
 
-    JD3D12_ASSERT_OR_RETURN(src_data.data != nullptr, "src_memory cannot be null.");
-    JD3D12_ASSERT_OR_RETURN(src_data.size % 4 == 0, "src_data.size must be a multiple of 4 B.");
+    JD3D12_ASSERT_OR_RETURN(src_data.data != nullptr, L"src_memory cannot be null.");
+    JD3D12_ASSERT_OR_RETURN(src_data.size % 4 == 0, L"src_data.size must be a multiple of 4 B.");
     JD3D12_ASSERT_OR_RETURN(dst_byte_offset < dst_buf.GetSize()
         && dst_byte_offset + src_data.size <= dst_buf.GetSize(),
-        "Destination buffer region out of bounds.");
+        L"Destination buffer region out of bounds.");
 
     if(dst_buf.strategy_ == BufferStrategy::kUpload)
     {
@@ -1276,7 +1288,7 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
         // Use WriteBufferImmediate.
 
         JD3D12_ASSERT_OR_RETURN(src_data.size <= 0x10000,
-            "Writing to buffers in GPU memory is currently limited to 64 KB per call. It will be improved in the future.");
+            L"Writing to buffers in GPU memory is currently limited to 64 KB per call. It will be improved in the future.");
 
         const uint32_t timeout = (command_flags & kCommandFlagDontWait) ? 0 : kTimeoutInfinite;
         const Result res = EnsureCommandListState(CommandListState::kRecording, timeout);
@@ -1321,14 +1333,14 @@ Result DeviceImpl::WaitForGPU(uint32_t timeout_milliseconds)
 
 Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
 {
-    JD3D12_ASSERT_OR_RETURN(src_buf.GetDevice() == this, "src_buf does not belong to this Device.");
-    JD3D12_ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "dst_buf does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(src_buf.GetDevice() == this, L"src_buf does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(dst_buf.GetDevice() == this, L"dst_buf does not belong to this Device.");
     JD3D12_ASSERT_OR_RETURN((src_buf.desc_.flags & kBufferUsageFlagCopySrc) != 0,
-        "src_buf was not created with kBufferUsageFlagCopySource.");
+        L"src_buf was not created with kBufferUsageFlagCopySource.");
     JD3D12_ASSERT_OR_RETURN((dst_buf.desc_.flags & kBufferUsageFlagCopyDst) != 0,
-        "dst_buf was not created with kBufferUsageFlagCopyDest.");
+        L"dst_buf was not created with kBufferUsageFlagCopyDest.");
     JD3D12_ASSERT_OR_RETURN(src_buf.GetSize() == dst_buf.GetSize(),
-        "Source and destination buffers must have the same size.");
+        L"Source and destination buffers must have the same size.");
 
     JD3D12_RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
 
@@ -1342,16 +1354,16 @@ Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
 
 Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, BufferImpl& dst_buf, size_t dst_byte_offset)
 {
-    JD3D12_ASSERT_OR_RETURN(src_buf.GetDevice() == this, "src_buf does not belong to this Device.");
-    JD3D12_ASSERT_OR_RETURN(dst_buf.GetDevice() == this, "dst_buf does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(src_buf.GetDevice() == this, L"src_buf does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(dst_buf.GetDevice() == this, L"dst_buf does not belong to this Device.");
     JD3D12_ASSERT_OR_RETURN((src_buf.desc_.flags & kBufferUsageFlagCopySrc) != 0,
-        "src_buf was not created with kBufferUsageFlagCopySource.");
+        L"src_buf was not created with kBufferUsageFlagCopySource.");
     JD3D12_ASSERT_OR_RETURN((dst_buf.desc_.flags & kBufferUsageFlagCopyDst) != 0,
-        "dst_buf was not created with kBufferUsageFlagCopyDest.");
+        L"dst_buf was not created with kBufferUsageFlagCopyDest.");
     src_byte_range = LimitRange(src_byte_range, src_buf.GetSize());
-    JD3D12_ASSERT_OR_RETURN(src_byte_range.count >= 0 && src_byte_range.count % 4 == 0, "Size must be non-zero and a multiple of 4.");
-    JD3D12_ASSERT_OR_RETURN(src_byte_range.first + src_byte_range.count <= src_buf.GetSize(), "Source buffer overflow.");
-    JD3D12_ASSERT_OR_RETURN(dst_byte_offset + src_byte_range.count <= dst_buf.GetSize(), "Destination buffer overflow.");
+    JD3D12_ASSERT_OR_RETURN(src_byte_range.count >= 0 && src_byte_range.count % 4 == 0, L"Size must be non-zero and a multiple of 4.");
+    JD3D12_ASSERT_OR_RETURN(src_byte_range.first + src_byte_range.count <= src_buf.GetSize(), L"Source buffer overflow.");
+    JD3D12_ASSERT_OR_RETURN(dst_byte_offset + src_byte_range.count <= dst_buf.GetSize(), L"Destination buffer overflow.");
 
     JD3D12_RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
 
@@ -1367,11 +1379,11 @@ Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, B
 Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& values, Range element_range)
 {
     JD3D12_ASSERT_OR_RETURN(buf.GetDevice() == this,
-        "ClearBufferToUintValues: Buffer does not belong to this Device.");
+        L"ClearBufferToUintValues: Buffer does not belong to this Device.");
     JD3D12_ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagShaderRWResource) != 0,
-        "ClearBufferToUintValues: Buffer was not created with kBufferUsageFlagShaderRWResource.");
+        L"ClearBufferToUintValues: Buffer was not created with kBufferUsageFlagShaderRWResource.");
     JD3D12_ASSERT_OR_RETURN((buf.desc_.flags & (kBufferFlagTyped | kBufferFlagByteAddress)) != 0,
-        "ClearBufferToUintValues: Buffer was not created with kBufferFlagTyped or kBufferFlagByteAddress.");
+        L"ClearBufferToUintValues: Buffer was not created with kBufferFlagTyped or kBufferFlagByteAddress.");
 
     if(element_range.count == 0)
         return kFalse;
@@ -1395,11 +1407,11 @@ Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& valu
 Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& values, Range element_range)
 {
     JD3D12_ASSERT_OR_RETURN(buf.GetDevice() == this,
-        "ClearBufferToFloatValues: Buffer does not belong to this Device.");
+        L"ClearBufferToFloatValues: Buffer does not belong to this Device.");
     JD3D12_ASSERT_OR_RETURN((buf.desc_.flags & kBufferUsageFlagShaderRWResource) != 0,
-        "ClearBufferToFloatValues: Buffer was not created with kBufferUsageFlagShaderRWResource.");
+        L"ClearBufferToFloatValues: Buffer was not created with kBufferUsageFlagShaderRWResource.");
     JD3D12_ASSERT_OR_RETURN((buf.desc_.flags & kBufferFlagTyped) != 0,
-        "ClearBufferToFloatValues: Buffer was not created with kBufferFlagTyped.");
+        L"ClearBufferToFloatValues: Buffer was not created with kBufferFlagTyped.");
 
     if(element_range.count == 0)
         return kFalse;
@@ -1438,7 +1450,7 @@ void DeviceImpl::ResetAllBindings()
 
 Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range byte_range)
 {
-    JD3D12_ASSERT_OR_RETURN(b_slot < MainRootSignature::kMaxCBVCount, "CBV slot out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(b_slot < MainRootSignature::kMaxCBVCount, L"CBV slot out of bounds.");
 
     if(buf != nullptr)
         byte_range = LimitRange(byte_range, buf->GetSize());
@@ -1447,7 +1459,7 @@ Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range by
 
     JD3D12_ASSERT_OR_RETURN(byte_range.first % D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT == 0
         && byte_range.count % D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT == 0,
-        "Constant buffer offset and size must be a multiple of 256 B.");
+        L"Constant buffer offset and size must be a multiple of 256 B.");
 
     Binding* binding = &binding_state_.cbv_bindings_[b_slot];
     if(binding->buffer == buf && binding->byte_range == byte_range)
@@ -1463,14 +1475,14 @@ Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range by
     if(alignment == 0)
         alignment = 4;
 
-    JD3D12_ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first % alignment == 0, L"Buffer offset must be a multiple of element size.");
     JD3D12_ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
-        "Size must be greater than zero and a multiple of element size.");
-    JD3D12_ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
+        L"Size must be greater than zero and a multiple of element size.");
+    JD3D12_ASSERT_OR_RETURN(buf->GetDevice() == this, L"Buffer does not belong to this Device.");
     JD3D12_ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagShaderConstant) != 0,
-        "BindConstantBuffer: Buffer was not created with kBufferUsageFlagShaderConstant.");
-    JD3D12_ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
-    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), "Buffer region out of bounds.");
+        L"BindConstantBuffer: Buffer was not created with kBufferUsageFlagShaderConstant.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), L"Buffer offset out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), L"Buffer region out of bounds.");
 
     binding->buffer = buf;
     binding->byte_range = byte_range;
@@ -1481,7 +1493,7 @@ Result DeviceImpl::BindConstantBuffer(uint32_t b_slot, BufferImpl* buf, Range by
 
 Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range)
 {
-    JD3D12_ASSERT_OR_RETURN(t_slot < MainRootSignature::kMaxSRVCount, "SRV slot out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(t_slot < MainRootSignature::kMaxSRVCount, L"SRV slot out of bounds.");
 
     if(buf != nullptr)
         byte_range = LimitRange(byte_range, buf->GetSize());
@@ -1501,20 +1513,20 @@ Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range
     const uint32_t type_bit_count = CountBitsSet(buf->desc_.flags
         & (kBufferFlagTyped | kBufferFlagStructured | kBufferFlagByteAddress));
     JD3D12_ASSERT_OR_RETURN(type_bit_count == 1,
-        "Buffer must be one of: kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress.");
+        L"Buffer must be one of: kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress.");
 
     size_t alignment = buf->GetElementSize();
     if(alignment == 0)
         alignment = 4;
 
-    JD3D12_ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first % alignment == 0, L"Buffer offset must be a multiple of element size.");
     JD3D12_ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
-        "Size must be greater than zero and a multiple of element size.");
-    JD3D12_ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
+        L"Size must be greater than zero and a multiple of element size.");
+    JD3D12_ASSERT_OR_RETURN(buf->GetDevice() == this, L"Buffer does not belong to this Device.");
     JD3D12_ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagShaderResource) != 0,
-        "BindBuffer: Buffer was not created with kBufferUsageFlagGpuShaderResource.");
-    JD3D12_ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
-    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), "Buffer region out of bounds.");
+        L"BindBuffer: Buffer was not created with kBufferUsageFlagGpuShaderResource.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), L"Buffer offset out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), L"Buffer region out of bounds.");
 
     binding->buffer = buf;
     binding->byte_range = byte_range;
@@ -1525,7 +1537,7 @@ Result DeviceImpl::BindBuffer(uint32_t t_slot, BufferImpl* buf, Range byte_range
 
 Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_range)
 {
-    JD3D12_ASSERT_OR_RETURN(u_slot < MainRootSignature::kMaxUAVCount, "UAV slot out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(u_slot < MainRootSignature::kMaxUAVCount, L"UAV slot out of bounds.");
 
     if(buf != nullptr)
         byte_range = LimitRange(byte_range, buf->GetSize());
@@ -1545,19 +1557,19 @@ Result DeviceImpl::BindRWBuffer(uint32_t u_slot, BufferImpl* buf, Range byte_ran
     const uint32_t type_bit_count = CountBitsSet(buf->desc_.flags
         & (kBufferFlagTyped | kBufferFlagStructured | kBufferFlagByteAddress));
     JD3D12_ASSERT_OR_RETURN(type_bit_count == 1,
-        "Buffer must be one of: kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress.");
+        L"Buffer must be one of: kBufferFlagTyped, kBufferFlagStructured, kBufferFlagByteAddress.");
 
     size_t alignment = buf->GetElementSize();
     if(alignment == 0)
         alignment = 4;
-    JD3D12_ASSERT_OR_RETURN(byte_range.first % alignment == 0, "Buffer offset must be a multiple of element size.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first % alignment == 0, L"Buffer offset must be a multiple of element size.");
     JD3D12_ASSERT_OR_RETURN(byte_range.count > 0 && byte_range.count % alignment == 0,
-        "Size must be greater than zero and a multiple of element size.");
-    JD3D12_ASSERT_OR_RETURN(buf->GetDevice() == this, "Buffer does not belong to this Device.");
+        L"Size must be greater than zero and a multiple of element size.");
+    JD3D12_ASSERT_OR_RETURN(buf->GetDevice() == this, L"Buffer does not belong to this Device.");
     JD3D12_ASSERT_OR_RETURN((buf->desc_.flags & kBufferUsageFlagShaderRWResource) != 0,
-        "BindRWBuffer: Buffer was not created with kBufferUsageFlagShaderRWResource.");
-    JD3D12_ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), "Buffer offset out of bounds.");
-    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), "Buffer region out of bounds.");
+        L"BindRWBuffer: Buffer was not created with kBufferUsageFlagShaderRWResource.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first < buf->GetSize(), L"Buffer offset out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(byte_range.first + byte_range.count <= buf->GetSize(), L"Buffer region out of bounds.");
 
     binding->buffer = buf;
     binding->byte_range = byte_range;
@@ -1578,7 +1590,7 @@ Result DeviceImpl::Init(bool enable_d3d12_debug_layer)
         uintptr_t(GetInterface()),
         EnsureNonNullString(desc_.name), desc_.flags, adapter_desc.Description);
 
-    JD3D12_RETURN_IF_FAILED(env_->GetDeviceFactory()->CreateDevice(env_->GetAdapter1(),
+    JD3D12_LOG_AND_RETURN_IF_FAILED(env_->GetDeviceFactory()->CreateDevice(env_->GetAdapter1(),
         D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&device_)));
 
     if(enable_d3d12_debug_layer)
@@ -1598,18 +1610,18 @@ Result DeviceImpl::Init(bool enable_d3d12_debug_layer)
     cmd_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
     if((desc_.flags & kDeviceFlagDisableGpuTimeout) != 0)
         cmd_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
-    JD3D12_RETURN_IF_FAILED(device_->CreateCommandQueue(&cmd_queue_desc, IID_PPV_ARGS(&command_queue_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(device_->CreateCommandQueue(&cmd_queue_desc, IID_PPV_ARGS(&command_queue_)));
     SetObjectName(command_queue_, desc_.name, L"CommandQueue");
 
-    JD3D12_RETURN_IF_FAILED(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
+    JD3D12_LOG_AND_RETURN_IF_FAILED(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
         IID_PPV_ARGS(&command_allocator_)));
     SetObjectName(command_allocator_, desc_.name, L"CommandAllocator");
 
-    JD3D12_RETURN_IF_FAILED(device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+    JD3D12_LOG_AND_RETURN_IF_FAILED(device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
         command_allocator_, nullptr, IID_PPV_ARGS(&command_list_)));
     SetObjectName(command_list_, desc_.name, L"CommandList");
 
-    JD3D12_RETURN_IF_FAILED(device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)));
     SetObjectName(fence_, desc_.name, L"Fence");
 
     HANDLE fence_event_handle = NULL;
@@ -1658,13 +1670,13 @@ Result DeviceImpl::ExecuteRecordedCommands()
 {
     JD3D12_ASSERT(command_list_state_ == CommandListState::kRecording);
 
-    JD3D12_RETURN_IF_FAILED(command_list_->Close());
+    JD3D12_LOG_AND_RETURN_IF_FAILED(command_list_->Close());
 
     ID3D12CommandList* command_lists[] = { command_list_ };
     command_queue_->ExecuteCommandLists(1, command_lists);
 
     ++submitted_fence_value_;
-    JD3D12_RETURN_IF_FAILED(command_queue_->Signal(fence_, submitted_fence_value_));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(command_queue_->Signal(fence_, submitted_fence_value_));
 
     command_list_state_ = CommandListState::kExecuting;
 
@@ -1677,7 +1689,7 @@ Result DeviceImpl::WaitForCommandExecution(uint32_t timeout_milliseconds)
 
     if(fence_->GetCompletedValue() < submitted_fence_value_)
     {
-        JD3D12_RETURN_IF_FAILED(fence_->SetEventOnCompletion(submitted_fence_value_, fence_event_.get()));
+        JD3D12_LOG_AND_RETURN_IF_FAILED(fence_->SetEventOnCompletion(submitted_fence_value_, fence_event_.get()));
         const DWORD wait_result = WaitForSingleObject(fence_event_.get(), timeout_milliseconds);
         switch(wait_result)
         {
@@ -1706,8 +1718,8 @@ Result DeviceImpl::ResetCommandListForRecording()
     shader_invisible_descriptor_heap_.ClearDynamic();
     shader_visible_descriptor_heap_.ClearDynamic();
 
-    JD3D12_RETURN_IF_FAILED(command_allocator_->Reset());
-    JD3D12_RETURN_IF_FAILED(command_list_->Reset(command_allocator_, nullptr));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(command_allocator_->Reset());
+    JD3D12_LOG_AND_RETURN_IF_FAILED(command_list_->Reset(command_allocator_, nullptr));
 
     command_list_state_ = CommandListState::kRecording;
 
@@ -1733,7 +1745,7 @@ Result DeviceImpl::EnsureCommandListState(CommandListState desired_state, uint32
 
 Result DeviceImpl::WaitForBufferUnused(BufferImpl* buf)
 {
-    JD3D12_ASSERT_OR_RETURN(!binding_state_.IsBufferBound(buf), "Buffer is still bound.");
+    JD3D12_ASSERT_OR_RETURN(!binding_state_.IsBufferBound(buf), L"Buffer is still bound.");
 
     if(resource_usage_map_.map_.find(buf) != resource_usage_map_.map_.end())
         return EnsureCommandListState(CommandListState::kNone);
@@ -1751,7 +1763,7 @@ Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
 {
     JD3D12_ASSERT(command_list_state_ == CommandListState::kRecording);
 
-    JD3D12_ASSERT_OR_RETURN(!buf.is_user_mapped_, "Cannot use a buffer on the GPU while it is mapped.");
+    JD3D12_ASSERT_OR_RETURN(!buf.is_user_mapped_, L"Cannot use a buffer on the GPU while it is mapped.");
 
     uint32_t usage_flags = kResourceUsageFlagRead;
     switch(state)
@@ -1829,7 +1841,7 @@ Result DeviceImpl::UpdateRootArguments()
 
             if(binding.descriptor_index == UINT32_MAX)
             {
-                JD3D12_RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
+                JD3D12_LOG_AND_RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
 
                 D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
                 cbv_desc.BufferLocation = binding.buffer->GetNativeResource()->GetGPUVirtualAddress()
@@ -1861,7 +1873,7 @@ Result DeviceImpl::UpdateRootArguments()
 
             if(binding.descriptor_index == UINT32_MAX)
             {
-                JD3D12_RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
+                JD3D12_LOG_AND_RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
 
                 const uint32_t buffer_type = binding.buffer->desc_.flags
                     & (kBufferFlagTyped | kBufferFlagStructured | kBufferFlagByteAddress);
@@ -1944,7 +1956,7 @@ Result DeviceImpl::UpdateRootArguments()
 
             if(binding.descriptor_index == UINT32_MAX)
             {
-                JD3D12_RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
+                JD3D12_LOG_AND_RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
 
                 const uint32_t buffer_type = binding.buffer->desc_.flags
                     & (kBufferFlagTyped | kBufferFlagStructured | kBufferFlagByteAddress);
@@ -2042,7 +2054,7 @@ Result DeviceImpl::CreateStaticShaders()
     Singleton& singleton = Singleton::GetInstance();
 
     JD3D12_ASSERT_OR_RETURN(singleton.static_shaders_.empty() || singleton.dev_count_ == 1,
-        "Static shaders can only be used when at most 1 Device is created at a time.");
+        L"Static shaders can only be used when at most 1 Device is created at a time.");
 
     for(StaticShader* static_shader : singleton.static_shaders_)
     {
@@ -2056,7 +2068,7 @@ Result DeviceImpl::CreateStaticBuffers()
     Singleton& singleton = Singleton::GetInstance();
 
     JD3D12_ASSERT_OR_RETURN(singleton.static_buffers_.empty() || singleton.dev_count_ == 1,
-        "Static buffers can only be used when at most 1 Device is created at a time.");
+        L"Static buffers can only be used when at most 1 Device is created at a time.");
 
     for(StaticBuffer* static_buffer: singleton.static_buffers_)
     {
@@ -2094,7 +2106,7 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
     out_shader_visible_gpu_desc_handle = {};
     out_shader_invisible_cpu_desc_handle = {};
 
-    JD3D12_ASSERT_OR_RETURN(buf.GetDevice() == this, "buf does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(buf.GetDevice() == this, L"buf does not belong to this Device.");
 
     JD3D12_RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
 
@@ -2117,13 +2129,15 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
         const Format element_format = buf.desc_.element_format;
         dxgi_format = DXGI_FORMAT(element_format);
         const FormatDesc* format_desc = GetFormatDesc(element_format);
-        JD3D12_RETURN_IF_FAILED(format_desc != nullptr && format_desc->bits_per_element > 0
-            && format_desc->bits_per_element % 8 == 0);
+        JD3D12_ASSERT_OR_RETURN(format_desc != nullptr && format_desc->bits_per_element > 0
+            && format_desc->bits_per_element % 8 == 0,
+            L"Invalid element format of a typed buffer.");
         element_size = format_desc->bits_per_element / 8;
     }
     else
     {
-        JD3D12_RETURN_IF_FAILED((buf.desc_.flags & kBufferFlagByteAddress) != 0);
+        JD3D12_ASSERT_OR_RETURN((buf.desc_.flags & kBufferFlagByteAddress) != 0,
+            L"Only typed and byte address buffers are supported.");
         dxgi_format = DXGI_FORMAT_R32_UINT;
         element_size = sizeof(uint32_t);
     }
@@ -2131,8 +2145,8 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
     element_range = LimitRange(element_range, buf_size / element_size);
     JD3D12_ASSERT_OR_RETURN(element_range.first * element_size < buf_size
         && (element_range.first + element_range.count) * element_size <= buf_size,
-        "Element range out of bounds.");
-    JD3D12_ASSERT_OR_RETURN(element_range.count <= UINT32_MAX, "Element count exceeds UINT32_MAX.");
+        L"Element range out of bounds.");
+    JD3D12_ASSERT_OR_RETURN(element_range.count <= UINT32_MAX, L"Element count exceeds UINT32_MAX.");
 
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
     uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
@@ -2157,7 +2171,7 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
 
 Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& group_count)
 {
-    JD3D12_ASSERT_OR_RETURN(shader.GetDevice() == this, "Shader does not belong to this Device.");
+    JD3D12_ASSERT_OR_RETURN(shader.GetDevice() == this, L"Shader does not belong to this Device.");
 
     if(group_count.x == 0 || group_count.y == 0 || group_count.z == 0)
         return kFalse;
@@ -2177,7 +2191,7 @@ Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& gro
     */
     JD3D12_ASSERT_OR_RETURN(group_count.x <= UINT16_MAX
         && group_count.y <= UINT16_MAX
-        && group_count.z <= UINT16_MAX, "Dispatch group count cannot exceed 65535 in any dimension.");
+        && group_count.z <= UINT16_MAX, L"Dispatch group count cannot exceed 65535 in any dimension.");
 
     JD3D12_RETURN_IF_FAILED(EnsureCommandListState(CommandListState::kRecording));
 
@@ -2222,12 +2236,17 @@ Result ShaderCompiler::Init(const EnvironmentDesc& env_desc)
     if(create_instance_proc_ == nullptr)
         return kErrorFail;
 
-    JD3D12_RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcUtils, IID_PPV_ARGS(&utils_)));
-    JD3D12_RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler3_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcUtils, IID_PPV_ARGS(&utils_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler3_)));
 
-    JD3D12_RETURN_IF_FAILED(utils_->CreateDefaultIncludeHandler(&include_handler_));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(utils_->CreateDefaultIncludeHandler(&include_handler_));
 
     return kSuccess;
+}
+
+Logger* ShaderCompiler::GetLogger() const noexcept
+{
+    return env_.GetLogger();
 }
 
 Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
@@ -2241,7 +2260,7 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
 
     // Entry point.
     JD3D12_ASSERT_OR_RETURN(IsHlslIdentifier(params.entry_point),
-        "ShaderCompilationParams::entry_point must be a valid HLSL identifier.");
+        L"ShaderCompilationParams::entry_point must be a valid HLSL identifier.");
     out_arguments.push_back(L"-E");
     out_arguments.push_back(params.entry_point);
 
@@ -2250,7 +2269,7 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
         || params.hlsl_version == kHlslVersion2017
         || params.hlsl_version == kHlslVersion2018
         || params.hlsl_version == kHlslVersion2021,
-        "Unsupported HLSL version specified in ShaderCompilationParams::hlsl_version.");
+        L"Unsupported HLSL version specified in ShaderCompilationParams::hlsl_version.");
     out_arguments.push_back(L"-HV");
     out_arguments.push_back(std::to_wstring(params.hlsl_version));
 
@@ -2258,7 +2277,7 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
     const uint32_t shader_model_major = params.shader_model >> 8;
     const uint32_t shader_model_minor = params.shader_model & 0xFF;
     JD3D12_ASSERT_OR_RETURN(shader_model_major == 6 && shader_model_major <= 9,
-        "Unsupported shader model specified in ShaderCompilationParams::shader_model.");
+        L"Unsupported shader model specified in ShaderCompilationParams::shader_model.");
     out_arguments.push_back(L"-T");
     out_arguments.emplace_back(SPrintF(L"cs_%u_%u", shader_model_major, shader_model_minor));
 
@@ -2268,7 +2287,7 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
         || params.optimization_level == kShaderOptimizationLevel1
         || params.optimization_level == kShaderOptimizationLevel2
         || params.optimization_level == kShaderOptimizationLevel3,
-        "Invalid optimization level specified in ShaderCompilationParams::optimization_level.");
+        L"Invalid optimization level specified in ShaderCompilationParams::optimization_level.");
     if (params.optimization_level == kShaderOptimizationDisabled)
         out_arguments.push_back(DXC_ARG_SKIP_OPTIMIZATIONS);
     else if (params.optimization_level != kShaderOptimizationLevel3)
@@ -2276,25 +2295,25 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
 
     JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
         kShaderCompilationFlagDenormPreserve | kShaderCompilationFlagDenormFlushToZero)) <= 1,
-        "kShaderCompilationFlagDenormPreserve and kShaderCompilationFlagDenormFlushToZero and mutually exclusive.");
+        L"kShaderCompilationFlagDenormPreserve and kShaderCompilationFlagDenormFlushToZero and mutually exclusive.");
     JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
         kShaderCompilationFlagAvoidFlowControl | kShaderCompilationFlagPreferFlowControl)) <= 1,
-        "kShaderCompilationFlagAvoidFlowControl and kShaderCompilationFlagPreferFlowControl and mutually exclusive.");
+        L"kShaderCompilationFlagAvoidFlowControl and kShaderCompilationFlagPreferFlowControl and mutually exclusive.");
     JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
         kShaderCompilationFlagPackMatricesColumnMajor | kShaderCompilationFlagPackMatricesRowMajor)) <= 1,
-        "kShaderCompilationFlagPackMatricesColumnMajor and kShaderCompilationFlagPackMatricesRowMajor and mutually exclusive.");
+        L"kShaderCompilationFlagPackMatricesColumnMajor and kShaderCompilationFlagPackMatricesRowMajor and mutually exclusive.");
     JD3D12_ASSERT_OR_RETURN(CountBitsSet(params.flags & (
         kShaderCompilationFlagFiniteMathOnly | kShaderCompilationFlagNoFiniteMathOnly)) <= 1,
-        "kShaderCompilationFlagFiniteMathOnly and kShaderCompilationFlagNoFiniteMathOnly and mutually exclusive.");
+        L"kShaderCompilationFlagFiniteMathOnly and kShaderCompilationFlagNoFiniteMathOnly and mutually exclusive.");
 
     // Macro definitions.
     JD3D12_ASSERT_OR_RETURN(params.macro_defines.count % 2 == 0,
-        "ShaderCompilationParams::macro_defines must contains an even number of elements for macro names and their values.");
+        L"ShaderCompilationParams::macro_defines must contains an even number of elements for macro names and their values.");
     for(size_t i = 0; i < params.macro_defines.count; i += 2)
     {
         const wchar_t* const macro_name = params.macro_defines.data[i];
         const wchar_t* const macro_value = params.macro_defines.data[i + 1];
-        JD3D12_ASSERT_OR_RETURN(IsHlslIdentifier(macro_name), "Macro name must be a valid HLSL identifier.");
+        JD3D12_ASSERT_OR_RETURN(IsHlslIdentifier(macro_name), L"Macro name must be a valid HLSL identifier.");
         out_arguments.push_back(L"-D");
         if(IsStringEmpty(macro_value))
             out_arguments.push_back(macro_name);
@@ -2343,6 +2362,7 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
 EnvironmentImpl::EnvironmentImpl(Environment* interface_obj, const EnvironmentDesc& desc)
     : interface_obj_{interface_obj}
     , desc_{desc}
+    , shader_compiler_{*this}
 {
     Singleton& singleton = Singleton::GetInstance();
     JD3D12_ASSERT(singleton.env_ == nullptr && "Only one Environment instance can be created.");
@@ -2352,7 +2372,7 @@ EnvironmentImpl::EnvironmentImpl(Environment* interface_obj, const EnvironmentDe
 Result EnvironmentImpl::Init()
 {
     bool logger_is_needed = false;
-    JD3D12_RETURN_IF_FAILED(Logger::IsNeeded(desc_, logger_is_needed));
+    JD3D12_RETURN_IF_FAILED(IsLoggerNeeded(logger_is_needed));
     if(logger_is_needed)
     {
         logger_ = std::make_unique<Logger>();
@@ -2363,9 +2383,9 @@ Result EnvironmentImpl::Init()
         uintptr_t(GetInterface()), desc_.flags);
 
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc_.d3d12_dll_path),
-        "EnvironmentDesc::d3d12_dll_path cannot be null or empty.");
+        L"EnvironmentDesc::d3d12_dll_path cannot be null or empty.");
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(desc_.dxc_dll_path),
-        "EnvironmentDesc::dxc_dll_path cannot be null or empty.");
+        L"EnvironmentDesc::dxc_dll_path cannot be null or empty.");
 
     const bool enable_debug_layer = (desc_.flags & kEnvironmentFlagEnableD3d12DebugLayer) != 0;
     UINT create_factory_flags = 0;
@@ -2375,7 +2395,7 @@ Result EnvironmentImpl::Init()
         create_factory_flags = DXGI_CREATE_FACTORY_DEBUG;
     }
 
-    JD3D12_RETURN_IF_FAILED(CreateDXGIFactory2(create_factory_flags, IID_PPV_ARGS(&dxgi_factory6_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(CreateDXGIFactory2(create_factory_flags, IID_PPV_ARGS(&dxgi_factory6_)));
 
     for(UINT adapter_index = 0; ; ++adapter_index)
     {
@@ -2386,20 +2406,20 @@ Result EnvironmentImpl::Init()
             break;
 
         DXGI_ADAPTER_DESC1 adapter_desc = {};
-        JD3D12_RETURN_IF_FAILED(adapter1->GetDesc1(&adapter_desc));
+        JD3D12_LOG_AND_RETURN_IF_FAILED(adapter1->GetDesc1(&adapter_desc));
 
         selected_adapter_index_ = adapter_index;
         adapter_ = std::move(adapter1);
         break;
     }
 
-    JD3D12_ASSERT_OR_RETURN(selected_adapter_index_ != UINT32_MAX, "Adapter not found.");
+    JD3D12_ASSERT_OR_RETURN(selected_adapter_index_ != UINT32_MAX, L"Adapter not found.");
 
-    JD3D12_RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdk_config1_)));
 
     uint32_t sdk_version = desc_.is_d3d12_agility_sdk_preview
         ? D3D12_PREVIEW_SDK_VERSION : D3D12_SDK_VERSION;
-    JD3D12_RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(sdk_version, desc_.d3d12_dll_path,
+    JD3D12_LOG_AND_RETURN_IF_FAILED(sdk_config1_->CreateDeviceFactory(sdk_version, desc_.d3d12_dll_path,
         IID_PPV_ARGS(&device_factory_)));
 
     JD3D12_RETURN_IF_FAILED(shader_compiler_.Init(desc_));
@@ -2451,9 +2471,9 @@ Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& p
     out_result = nullptr;
 
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(params.entry_point),
-        "ShaderCompilationParams::entry_point cannot be null or empty.");
+        L"ShaderCompilationParams::entry_point cannot be null or empty.");
     JD3D12_ASSERT_OR_RETURN(hlsl_source.data != nullptr && hlsl_source.size > 0,
-        "HLSL source data cannot be null or empty.");
+        L"HLSL source data cannot be null or empty.");
 
     JD3D12_LOG(kLogSeverityInfo, L"Compiling shader \"%s\": flags=0x%X, entry_point=%s",
         name, params.flags, params.entry_point);
@@ -2481,7 +2501,7 @@ Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& p
     source_buf.Encoding = DXC_CP_ACP; // TODO support other encodings.
 
     CComPtr<IDxcResult> dxc_result;
-    JD3D12_RETURN_IF_FAILED(shader_compiler_.GetCompiler3()->Compile(&source_buf,
+    JD3D12_LOG_AND_RETURN_IF_FAILED(shader_compiler_.GetCompiler3()->Compile(&source_buf,
         arg_pointers.GetData(), UINT32(arg_pointers.GetCount()),
         shader_compiler_.GetIncludeHandler(), IID_PPV_ARGS(&dxc_result)));
 
@@ -2497,14 +2517,14 @@ Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& par
     const wchar_t* hlsl_source_file_path, ShaderCompilationResult*& out_result)
 {
     JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(hlsl_source_file_path),
-        "hlsl_source_file_path cannot be null or empty.");
+        L"hlsl_source_file_path cannot be null or empty.");
 
     JD3D12_LOG(kLogSeverityInfo, L"Loading shader source from file \"%s\"",
         hlsl_source_file_path);
 
     char* source_ptr = nullptr;
     size_t source_size = 0;
-    JD3D12_RETURN_IF_FAILED(LoadFile(hlsl_source_file_path, source_ptr, source_size));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(LoadFile(hlsl_source_file_path, source_ptr, source_size));
     std::unique_ptr<char[]> source{ source_ptr };
 
     return CompileShaderFromMemory(params, hlsl_source_file_path,
@@ -2514,7 +2534,7 @@ Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& par
 Result EnvironmentImpl::EnableDebugLayer()
 {
     CComPtr<ID3D12Debug> debug;
-    JD3D12_RETURN_IF_FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
     debug->EnableDebugLayer();
 
     const bool enable_gbv = (desc_.flags & kEnvironmentFlagEnableD3d12GpuBasedValidation) != 0;
@@ -2548,6 +2568,24 @@ Result EnvironmentImpl::EnableDebugLayer()
         }
     }
 
+    return kSuccess;
+}
+
+Result EnvironmentImpl::IsLoggerNeeded(bool& out_is_needed)
+{
+    out_is_needed = false;
+
+    if((desc_.flags & kEnvironmentMaskLog) == 0 || desc_.log_severity == 0)
+        return kSuccess;
+
+    const uint32_t log_bits_set = CountBitsSet(desc_.flags & kEnvironmentMaskLog);
+    JD3D12_ASSERT_OR_RETURN(log_bits_set <= 1, L"At most one kEnvironmentFlagLog* can be specified.");
+
+    JD3D12_ASSERT_OR_RETURN(((desc_.flags & kEnvironmentFlagLogFile) != 0)
+        == !IsStringEmpty(desc_.log_file_path),
+        L"EnvironmentDesc::log_file_path should be specified if and only if kEnvironmentFlagLogFile is specified.");
+
+    out_is_needed = log_bits_set > 0;
     return kSuccess;
 }
 
