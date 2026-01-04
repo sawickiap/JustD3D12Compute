@@ -39,6 +39,8 @@ public:
     // Redirects to Print(format, arg_list).
     void PrintF(const wchar_t* format, ...);
 
+    virtual void Flush() { }
+
 protected:
     PrintStream() = default;
 
@@ -55,27 +57,15 @@ public:
     {
     }
     using PrintStream::Print;
-    virtual void Print(const wchar_t* str, size_t str_len);
-    virtual void Print(const wchar_t* str);
-    virtual void VPrintF(const wchar_t* format, va_list arg_list);
+    void Print(const wchar_t* str, size_t str_len) override;
+    void Print(const wchar_t* str) override;
+    void VPrintF(const wchar_t* format, va_list arg_list) override;
+    void Flush() override;
 
 private:
     const bool use_standard_error_ = false;
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(StandardOutputPrintStream);
-};
-
-class StandardErrorPrintStream : public PrintStream
-{
-public:
-    StandardErrorPrintStream() = default;
-    using PrintStream::Print;
-    virtual void Print(const wchar_t* str, size_t str_len);
-    virtual void Print(const wchar_t* str);
-    virtual void VPrintF(const wchar_t* format, va_list arg_list);
-
-private:
-    JD3D12_NO_COPY_NO_MOVE_CLASS(StandardErrorPrintStream);
 };
 
 // Prints to file.
@@ -87,9 +77,10 @@ public:
     ~FilePrintStream() = default;
 
     using PrintStream::Print;
-    virtual void Print(const wchar_t* str, size_t str_len);
-    virtual void Print(const wchar_t* str);
-    virtual void VPrintF(const wchar_t* format, va_list arg_list);
+    void Print(const wchar_t* str, size_t str_len) override;
+    void Print(const wchar_t* str) override;
+    void VPrintF(const wchar_t* format, va_list arg_list) override;
+    void Flush() override;
 
 private:
     std::unique_ptr<FILE, FCloseDeleter> file_;
@@ -103,7 +94,7 @@ class DebugPrintStream : public PrintStream
 public:
     DebugPrintStream() = default;
     using PrintStream::Print;
-    virtual void Print(const wchar_t* str);
+    void Print(const wchar_t* str) override;
 
 private:
     JD3D12_NO_COPY_NO_MOVE_CLASS(DebugPrintStream);
@@ -180,6 +171,11 @@ void StandardOutputPrintStream::VPrintF(const wchar_t* format, va_list arg_list)
     ::vfwprintf(use_standard_error_ ? stderr : stdout, format, arg_list);
 }
 
+void StandardOutputPrintStream::Flush()
+{
+    fflush(use_standard_error_ ? stderr : stdout);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // class FilePrintStream
 
@@ -210,6 +206,11 @@ void FilePrintStream::Print(const wchar_t* str)
 void FilePrintStream::VPrintF(const wchar_t* format, va_list arg_list)
 {
     ::vfwprintf(file_.get(), format, arg_list);
+}
+
+void FilePrintStream::Flush()
+{
+    fflush(file_.get());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -288,6 +289,9 @@ void Logger::Log(LogSeverity severity, const wchar_t* message)
 
     std::lock_guard<std::mutex> lock(print_stream_mutex_);
     print_stream_->PrintF(L"[%s] %s\n", severity_str, message);
+
+    if(severity >= kLogSeverityWarning)
+        print_stream_->Flush();
 }
 
 void Logger::VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list)
