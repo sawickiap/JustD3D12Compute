@@ -18,6 +18,7 @@ class BufferImpl;
 class ShaderImpl;
 class ShaderCompilationResultImpl;
 class DeviceImpl;
+class ShaderCompiler;
 class EnvironmentImpl;
 
 class Device;
@@ -138,6 +139,7 @@ enum ShaderCompilationFlags : uint32_t
     /// Disallow optimizations for floating-point arithmetic that assume that arguments and results are not NaNs or +-Infs.
     /// Passed to DXC as `-fno-finite-math-only`.
     kShaderCompilationFlagNoFiniteMathOnly = 0x00000800u,
+    kShaderCompilationFlagDisableIncludes = 0x00001000u,
 };
 
 enum CharacterEncoding : uint32_t
@@ -263,7 +265,7 @@ private:
 
     ShaderCompilationResult();
 
-    friend class EnvironmentImpl;
+    friend class ShaderCompiler;
     JD3D12_NO_COPY_NO_MOVE_CLASS(ShaderCompilationResult)
 };
 

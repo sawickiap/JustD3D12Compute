@@ -41,7 +41,10 @@ StaticBuffer main_readback_buffer{
         kMainBufSize } };
 
 StaticShaderCompiledFromFile byte_address_shader{
-    ShaderCompilationParams{ 0, kCharacterEncodingAnsi, L"Main_ByteAddress" },
+    ShaderCompilationParams{
+        0,//kShaderCompilationFlagDisableIncludes,
+        kCharacterEncodingAnsi,
+        L"Main_ByteAddress" },
     ShaderDesc{ },
     L"c:/Code/JustD3D12Compute/REPO/tests/shaders/Test.hlsl"
 };

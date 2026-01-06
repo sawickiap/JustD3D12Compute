@@ -13,6 +13,7 @@
 
 namespace jd3d12
 {
+using FileSystemPath = std::filesystem::path;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Type definitions
@@ -393,6 +394,28 @@ private:
     JD3D12_NO_COPY_NO_MOVE_CLASS(DeviceImpl)
 };
 
+class ShaderCompiler;
+
+class MyIncludeHandler : public IDxcIncludeHandler
+{
+public:
+    MyIncludeHandler(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding);
+        
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID riid, _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override { return E_NOINTERFACE; }
+    ULONG STDMETHODCALLTYPE AddRef(void) override { return 1; }
+    ULONG STDMETHODCALLTYPE Release(void) override { return 1; }
+
+    HRESULT STDMETHODCALLTYPE LoadSource(_In_z_ LPCWSTR pFilename,
+        _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource) override;
+
+private:
+    static bool FileExists(const FileSystemPath& path);
+
+    ShaderCompiler* const shader_compiler_;
+    CharacterEncoding character_encoding_;
+};
+
 class ShaderCompiler
 {
 public:
@@ -401,12 +424,10 @@ public:
     Result Init(const EnvironmentDesc& env_desc);
 
     Logger* GetLogger() const noexcept;
-    IDxcUtils* GetUtils() const noexcept { return utils_; }
-    IDxcCompiler3* GetCompiler3() const noexcept { return compiler3_; }
-    IDxcIncludeHandler* GetIncludeHandler() const noexcept { return include_handler_; }
+    IDxcUtils* GetDxcUtils() const noexcept { return utils_.p; }
 
-    Result BuildArguments(const ShaderCompilationParams& params,
-        const wchar_t* source_name, std::vector<std::wstring>& out_arguments);
+    Result CompileShaderFromMemory(const ShaderCompilationParams& params, const wchar_t* main_source_file_path,
+        ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result);
 
 private:
     EnvironmentImpl& env_;
@@ -414,7 +435,10 @@ private:
     DxcCreateInstanceProc create_instance_proc_ = nullptr;
     CComPtr<IDxcUtils> utils_;
     CComPtr<IDxcCompiler3> compiler3_;
-    CComPtr<IDxcIncludeHandler> include_handler_;
+
+    Result BuildArguments(const ShaderCompilationParams& params,
+        const wchar_t* source_name, std::vector<std::wstring>& out_arguments);
+    void LogCompilationResult(ShaderCompilationResult& result);
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(ShaderCompiler)
 };
@@ -2220,12 +2244,51 @@ void DeviceImpl::StaticDebugLayerMessageCallback(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// class IncludeHandler
+
+MyIncludeHandler::MyIncludeHandler(ShaderCompiler* shader_compiler,
+    CharacterEncoding character_encoding)
+    : shader_compiler_{shader_compiler}
+    , character_encoding_{character_encoding}
+{
+}
+
+HRESULT STDMETHODCALLTYPE MyIncludeHandler::LoadSource(_In_z_ LPCWSTR pFilename,
+    _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource)
+{
+    *ppIncludeSource = nullptr;
+
+    FileSystemPath file_path{pFilename};
+    if(FileExists(file_path))
+    {
+        IDxcBlobEncoding* blob_encoding = nullptr;
+        HRESULT hr = shader_compiler_->GetDxcUtils()->LoadFile(file_path.c_str(),
+            reinterpret_cast<UINT32*>(&character_encoding_), &blob_encoding);
+        if(SUCCEEDED(hr))
+        {
+            JD3D12_ASSERT(blob_encoding != nullptr);
+            *ppIncludeSource = blob_encoding;
+        }
+        return hr;
+    }
+
+    return kErrorNotFound;
+}
+
+bool MyIncludeHandler::FileExists(const FileSystemPath& path)
+{
+    std::error_code error_code;
+    const bool exists = std::filesystem::is_regular_file(path, error_code);
+    return !error_code && exists;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // class ShaderCompiler
 
 Result ShaderCompiler::Init(const EnvironmentDesc& env_desc)
 {
-    std::filesystem::path compiler_path =
-        std::filesystem::path(env_desc.dxc_dll_path) / L"dxcompiler.dll";
+    FileSystemPath compiler_path =
+        FileSystemPath(env_desc.dxc_dll_path) / L"dxcompiler.dll";
     module_ = LoadLibrary(compiler_path.c_str());
     if (module_ == NULL)
         return MakeResultFromLastError();
@@ -2237,14 +2300,67 @@ Result ShaderCompiler::Init(const EnvironmentDesc& env_desc)
     JD3D12_LOG_AND_RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcUtils, IID_PPV_ARGS(&utils_)));
     JD3D12_LOG_AND_RETURN_IF_FAILED(create_instance_proc_(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler3_)));
 
-    JD3D12_LOG_AND_RETURN_IF_FAILED(utils_->CreateDefaultIncludeHandler(&include_handler_));
-
     return kSuccess;
 }
 
 Logger* ShaderCompiler::GetLogger() const noexcept
 {
     return env_.GetLogger();
+}
+
+Result ShaderCompiler::CompileShaderFromMemory(const ShaderCompilationParams& params,
+    const wchar_t* main_source_file_path, ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result)
+{
+    out_result = nullptr;
+
+    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(params.entry_point),
+        L"ShaderCompilationParams::entry_point cannot be null or empty.");
+    JD3D12_ASSERT_OR_RETURN(hlsl_source.data != nullptr && hlsl_source.size > 0,
+        L"HLSL source data cannot be null or empty.");
+
+    JD3D12_LOG(kLogSeverityInfo, L"Compiling shader \"%s\": flags=0x%X, entry_point=%s",
+        main_source_file_path, params.flags, params.entry_point);
+
+    // Build the list of arguments.
+    std::vector<std::wstring> args;
+    JD3D12_RETURN_IF_FAILED(BuildArguments(params, main_source_file_path, args));
+
+    // Build the list of arguments as const wchar_t*[].
+    StackOrHeapVector<const wchar_t*, 16> arg_pointers;
+    for (const std::wstring& arg : args)
+    {
+        arg_pointers.Emplace(arg.c_str());
+    }
+    for (size_t i = 0; i < params.additional_dxc_args.count; ++i)
+    {
+        if(!IsStringEmpty(params.additional_dxc_args.data[i]))
+            arg_pointers.PushBack(params.additional_dxc_args.data[i]);
+    }
+
+    std::unique_ptr<MyIncludeHandler> include_handler;
+    if((params.flags & kShaderCompilationFlagDisableIncludes) == 0)
+    {
+        include_handler = std::make_unique<MyIncludeHandler>(this, params.character_encoding);
+    }
+
+    // Invoke DXC.
+    DxcBuffer source_buf{};
+    source_buf.Ptr = hlsl_source.data;
+    source_buf.Size = hlsl_source.size;
+    source_buf.Encoding = DXC_CP_ACP; // TODO support other encodings.
+
+    CComPtr<IDxcResult> dxc_result;
+    JD3D12_LOG_AND_RETURN_IF_FAILED(compiler3_->Compile(&source_buf,
+        arg_pointers.GetData(), UINT32(arg_pointers.GetCount()),
+        include_handler.get(), IID_PPV_ARGS(&dxc_result)));
+
+    // Create ShaderCompilationResult.
+    auto result = std::unique_ptr<ShaderCompilationResult>{ new ShaderCompilationResult{} };
+    result->impl_ = new ShaderCompilationResultImpl(result.get(), &env_);
+    JD3D12_RETURN_IF_FAILED(result->impl_->Init(std::move(dxc_result)));
+    LogCompilationResult(*result);
+    out_result = result.release();
+    return kSuccess;
 }
 
 Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
@@ -2352,6 +2468,17 @@ Result ShaderCompiler::BuildArguments(const ShaderCompilationParams& params,
         out_arguments.push_back(L"-fno-finite-math-only");
 
     return kSuccess;
+}
+
+void ShaderCompiler::LogCompilationResult(ShaderCompilationResult& result)
+{
+    const char* errors_and_warnings = result.GetErrorsAndWarnings();
+    if(IsStringEmpty(errors_and_warnings))
+        return;
+
+    const LogSeverity log_severity = Succeeded(result.GetResult())
+        ? kLogSeverityWarning : kLogSeverityError;
+    JD3D12_LOG(log_severity, L"%S", errors_and_warnings);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2468,49 +2595,7 @@ Result EnvironmentImpl::CreateDevice(const DeviceDesc& desc, Device*& out_device
 Result EnvironmentImpl::CompileShaderFromMemory(const ShaderCompilationParams& params, const wchar_t* name,
     ConstDataSpan hlsl_source, ShaderCompilationResult*& out_result)
 {
-    out_result = nullptr;
-
-    JD3D12_ASSERT_OR_RETURN(!IsStringEmpty(params.entry_point),
-        L"ShaderCompilationParams::entry_point cannot be null or empty.");
-    JD3D12_ASSERT_OR_RETURN(hlsl_source.data != nullptr && hlsl_source.size > 0,
-        L"HLSL source data cannot be null or empty.");
-
-    JD3D12_LOG(kLogSeverityInfo, L"Compiling shader \"%s\": flags=0x%X, entry_point=%s",
-        name, params.flags, params.entry_point);
-
-    // Build the list of arguments.
-    std::vector<std::wstring> args;
-    JD3D12_RETURN_IF_FAILED(shader_compiler_.BuildArguments(params, name, args));
-
-    // Build the list of arguments as const wchar_t*[].
-    StackOrHeapVector<const wchar_t*, 16> arg_pointers;
-    for (const std::wstring& arg : args)
-    {
-        arg_pointers.Emplace(arg.c_str());
-    }
-    for (size_t i = 0; i < params.additional_dxc_args.count; ++i)
-    {
-        if(!IsStringEmpty(params.additional_dxc_args.data[i]))
-            arg_pointers.PushBack(params.additional_dxc_args.data[i]);
-    }
-
-    // Invoke DXC.
-    DxcBuffer source_buf{};
-    source_buf.Ptr = hlsl_source.data;
-    source_buf.Size = hlsl_source.size;
-    source_buf.Encoding = DXC_CP_ACP; // TODO support other encodings.
-
-    CComPtr<IDxcResult> dxc_result;
-    JD3D12_LOG_AND_RETURN_IF_FAILED(shader_compiler_.GetCompiler3()->Compile(&source_buf,
-        arg_pointers.GetData(), UINT32(arg_pointers.GetCount()),
-        shader_compiler_.GetIncludeHandler(), IID_PPV_ARGS(&dxc_result)));
-
-    // Create ShaderCompilationResult.
-    auto result = std::unique_ptr<ShaderCompilationResult>{ new ShaderCompilationResult{} };
-    result->impl_ = new ShaderCompilationResultImpl(result.get(), this);
-    JD3D12_RETURN_IF_FAILED(result->impl_->Init(std::move(dxc_result)));
-    out_result = result.release();
-    return kSuccess;
+    return shader_compiler_.CompileShaderFromMemory(params, name, hlsl_source, out_result);
 }
 
 Result EnvironmentImpl::CompileShaderFromFile(const ShaderCompilationParams& params,

@@ -867,3 +867,34 @@ TEST_CASE("Shader compilation params", "[gpu][buffer][hlsl]")
         expected_data[i] = i * i + 1;
     CHECK(memcmp(dst_data.data(), expected_data.data(), default_buf_desc.size) == 0);
 }
+
+TEST_CASE("Shader source include", "[hlsl]")
+{
+    ShaderCompilationParams params{};
+    params.entry_point = L"Main";
+
+    ShaderCompilationResult* result_ptr = nullptr;
+    REQUIRE(Succeeded(g_env->CompileShaderFromFile(params, L"shaders/include_test.hlsl", result_ptr)));
+    std::unique_ptr<ShaderCompilationResult> result{result_ptr};
+
+    REQUIRE(Succeeded(result->GetResult()));
+    CHECK(result->GetBytecode().data != nullptr);
+    CHECK(result->GetBytecode().size > 0);
+}
+
+TEST_CASE("Shader source include disabled", "[hlsl]")
+{
+    ShaderCompilationParams params{};
+    params.flags = kShaderCompilationFlagDisableIncludes;
+    params.entry_point = L"Main";
+
+    ShaderCompilationResult* result_ptr = nullptr;
+    REQUIRE(Succeeded(g_env->CompileShaderFromFile(params, L"shaders/include_test.hlsl", result_ptr)));
+    std::unique_ptr<ShaderCompilationResult> result{result_ptr};
+
+    CHECK(Failed(result->GetResult()));
+    CHECK_THAT(result->GetErrorsAndWarnings(), Catch::Matchers::ContainsSubstring(
+        "#include \"include_test_header.hlsl\""));
+    CHECK_THAT(result->GetErrorsAndWarnings(), Catch::Matchers::ContainsSubstring(
+        "file not found"));
+}
