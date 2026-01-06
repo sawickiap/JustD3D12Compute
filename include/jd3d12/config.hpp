@@ -34,7 +34,7 @@
             JD3D12_ASSERT(ok__ && message); \
             if(!ok__) \
             { \
-                JD3D12_LOG(kLogSeverityAssert, L"%s(%d): Assertion %s failed: %s", L"" __FILE__, __LINE__, L"" #expr, (const wchar_t*)(message)); \
+                JD3D12_LOG(kLogSeverityAssert, L"%s(%d) %s: Assertion %s failed: %s", L"" __FILE__, __LINE__, L"" __FUNCTION__, L"" #expr, (const wchar_t*)(message)); \
                 return kErrorInvalidArgument; \
             } \
         } while(false)

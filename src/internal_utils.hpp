@@ -20,7 +20,7 @@
     do { \
         if(jd3d12::Result res__ = (expr); jd3d12::Failed(res__)) \
         { \
-            JD3D12_LOG(jd3d12::kLogSeverityError, L"%s(%d): %s failed with 0x%08X (%s)", L"" __FILE__, __LINE__, L"" #expr, res__, GetResultString(res__)); \
+            JD3D12_LOG(jd3d12::kLogSeverityError, L"%s(%d) %s: %s failed with 0x%08X (%s)", L"" __FILE__, __LINE__, L"" __FUNCTION__, L"" #expr, res__, GetResultString(res__)); \
             return res__; \
         } \
     } while(false)
