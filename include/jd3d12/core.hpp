@@ -139,6 +139,9 @@ enum ShaderCompilationFlags : uint32_t
     /// Disallow optimizations for floating-point arithmetic that assume that arguments and results are not NaNs or +-Infs.
     /// Passed to DXC as `-fno-finite-math-only`.
     kShaderCompilationFlagNoFiniteMathOnly = 0x00000800u,
+    /// Disables `#include` functionality in HLSL, so any usage of it fails the shader compilation.
+    /// If this flag is not specified, shader compilation uses custom include callback specified as ShaderCompilationParams::include_callback.
+    /// If the callback pointer is null, it uses default internal include handler that loads included files from the file system.
     kShaderCompilationFlagDisableIncludes = 0x00001000u,
 };
 
@@ -189,6 +192,23 @@ enum ShaderModel : uint16_t
     kShaderModel6_9 = 0x0609,
 };
 
+/** \brief Callback function pointer type to be used in ShaderCompilationParams::include_callback.
+
+If loading the file succeeded, it should allocate a buffer of bytes using `new char[size]` and return
+it via output parameters `out_data, out_size`, and the returned value should be #kSuccess.
+The ownership of the buffer is passed to the caller, so it will be freed inside the library using `delete[]` operator.
+If loading failed, the function should return a negative error code like #kErrorNotFound.
+
+The behavior of `path` is non-obvious and needs to be considered carefully.
+If the shader is compiled from a file (e.g. using Environment::CompileShaderFromFile,
+Device::CompileAndCreateShaderFromFile, #StaticShaderCompiledFromFile class),
+DXC automatically concatenates the path of the main source file with the include path.
+For example, if the main source file is "C:\shaders\materials\transparent.hlsl"
+and the include directive is `#include "..\common.hlsl", the `path` parameter passed to this function
+may look like: "C:\shaders\materials\..\common.hlsl".
+*/
+using IncludeCallback = Result(*)(const wchar_t* path, void* context, char*& out_data, size_t& out_size);
+
 struct ShaderCompilationParams
 {
     /// Use #ShaderCompilationFlags.
@@ -226,6 +246,17 @@ struct ShaderCompilationParams
     ArraySpan<const wchar_t*> macro_defines = { nullptr, 0 };
     /** \briefArray of null-terminated strings with additional arguments to be passed directly to DXC. */
     ArraySpan<const wchar_t*> additional_dxc_args = { nullptr, 0 };
+    /** \brief Optional pointer to a callback function to be used as a custom handler for `#include` directives in HLSL.
+
+    If this parameter is null, default include handler is used that loads files from the file system.
+
+    If #kShaderCompilationFlagDisableIncludes is used, the entire `#include` functionality
+    is disabled and using it fails the shader compilation. This parameter is then ignored.
+    */
+    IncludeCallback include_callback = nullptr;
+    /** \brief Custom pointer to be passed back to the `include_callback` function, which can be used for any purpose.
+    */
+    void* include_callback_context = nullptr;
 };
 
 /** \brief Stores the result of a shader compilation from HLSL source code to bytecode.

@@ -396,24 +396,46 @@ private:
 
 class ShaderCompiler;
 
-class MyIncludeHandler : public IDxcIncludeHandler
+class IncludeHandlerBase : public IDxcIncludeHandler
 {
 public:
-    MyIncludeHandler(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding);
-        
+    IncludeHandlerBase(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding);
+    virtual ~IncludeHandlerBase() = default;
+
     HRESULT STDMETHODCALLTYPE QueryInterface(
         REFIID riid, _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override { return E_NOINTERFACE; }
     ULONG STDMETHODCALLTYPE AddRef(void) override { return 1; }
     ULONG STDMETHODCALLTYPE Release(void) override { return 1; }
+
+protected:
+    ShaderCompiler* const shader_compiler_ = nullptr;
+    const CharacterEncoding character_encoding_ = kCharacterEncodingAnsi;
+};
+
+class DefaultIncludeHandler : public IncludeHandlerBase
+{
+public:
+    DefaultIncludeHandler(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding);
 
     HRESULT STDMETHODCALLTYPE LoadSource(_In_z_ LPCWSTR pFilename,
         _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource) override;
 
 private:
     static bool FileExists(const FileSystemPath& path);
+};
 
-    ShaderCompiler* const shader_compiler_;
-    CharacterEncoding character_encoding_;
+class CallbackIncludeHandler : public IncludeHandlerBase
+{
+public:
+    CallbackIncludeHandler(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding,
+        IncludeCallback callback, void* callback_context);
+
+    HRESULT STDMETHODCALLTYPE LoadSource(_In_z_ LPCWSTR pFilename,
+        _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource) override;
+
+private:
+    IncludeCallback callback_ = nullptr;
+    void* callback_context_ = nullptr;
 };
 
 class ShaderCompiler
@@ -2244,16 +2266,23 @@ void DeviceImpl::StaticDebugLayerMessageCallback(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// class IncludeHandler
+// class IncludeHandlerBase
 
-MyIncludeHandler::MyIncludeHandler(ShaderCompiler* shader_compiler,
-    CharacterEncoding character_encoding)
+IncludeHandlerBase::IncludeHandlerBase(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding)
     : shader_compiler_{shader_compiler}
     , character_encoding_{character_encoding}
 {
 }
 
-HRESULT STDMETHODCALLTYPE MyIncludeHandler::LoadSource(_In_z_ LPCWSTR pFilename,
+////////////////////////////////////////////////////////////////////////////////
+// class DefaultIncludeHandler
+
+DefaultIncludeHandler::DefaultIncludeHandler(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding)
+    : IncludeHandlerBase{shader_compiler, character_encoding}
+{
+}
+
+HRESULT STDMETHODCALLTYPE DefaultIncludeHandler::LoadSource(_In_z_ LPCWSTR pFilename,
     _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource)
 {
     *ppIncludeSource = nullptr;
@@ -2262,8 +2291,8 @@ HRESULT STDMETHODCALLTYPE MyIncludeHandler::LoadSource(_In_z_ LPCWSTR pFilename,
     if(FileExists(file_path))
     {
         IDxcBlobEncoding* blob_encoding = nullptr;
-        HRESULT hr = shader_compiler_->GetDxcUtils()->LoadFile(file_path.c_str(),
-            reinterpret_cast<UINT32*>(&character_encoding_), &blob_encoding);
+        UINT32 codepage = UINT32(character_encoding_);
+        HRESULT hr = shader_compiler_->GetDxcUtils()->LoadFile(file_path.c_str(), &codepage, &blob_encoding);
         if(SUCCEEDED(hr))
         {
             JD3D12_ASSERT(blob_encoding != nullptr);
@@ -2275,11 +2304,46 @@ HRESULT STDMETHODCALLTYPE MyIncludeHandler::LoadSource(_In_z_ LPCWSTR pFilename,
     return kErrorNotFound;
 }
 
-bool MyIncludeHandler::FileExists(const FileSystemPath& path)
+bool DefaultIncludeHandler::FileExists(const FileSystemPath& path)
 {
     std::error_code error_code;
     const bool exists = std::filesystem::is_regular_file(path, error_code);
     return !error_code && exists;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// class CallbackIncludeHandler
+
+CallbackIncludeHandler::CallbackIncludeHandler(ShaderCompiler* shader_compiler, CharacterEncoding character_encoding,
+    IncludeCallback callback, void* callback_context)
+    : IncludeHandlerBase{shader_compiler, character_encoding}
+    , callback_{callback}
+    , callback_context_{callback_context}
+{
+    JD3D12_ASSERT(callback != nullptr);
+}
+
+HRESULT STDMETHODCALLTYPE CallbackIncludeHandler::LoadSource(_In_z_ LPCWSTR pFilename,
+    _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource)
+{
+    *ppIncludeSource = nullptr;
+
+    char* data_ptr = nullptr;
+    size_t data_size = 0;
+    Result res = callback_(pFilename, callback_context_, data_ptr, data_size);
+    std::unique_ptr<char[]> data{data_ptr};
+
+    if(Failed(res))
+        return res;
+    if(data_size > UINT32_MAX)
+        return kErrorOutOfBounds;
+
+    IDxcBlobEncoding* blob_encoding = nullptr;
+    JD3D12_RETURN_IF_FAILED(shader_compiler_->GetDxcUtils()->CreateBlob(data_ptr, static_cast<UINT32>(data_size),
+        static_cast<UINT32>(character_encoding_), &blob_encoding));
+
+    *ppIncludeSource = blob_encoding;
+    return res;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2337,10 +2401,18 @@ Result ShaderCompiler::CompileShaderFromMemory(const ShaderCompilationParams& pa
             arg_pointers.PushBack(params.additional_dxc_args.data[i]);
     }
 
-    std::unique_ptr<MyIncludeHandler> include_handler;
+    std::unique_ptr<IncludeHandlerBase> include_handler;
     if((params.flags & kShaderCompilationFlagDisableIncludes) == 0)
     {
-        include_handler = std::make_unique<MyIncludeHandler>(this, params.character_encoding);
+        if(params.include_callback != nullptr)
+        {
+            include_handler = std::make_unique<CallbackIncludeHandler>(this, params.character_encoding,
+                params.include_callback, params.include_callback_context);
+        }
+        else
+        {
+            include_handler = std::make_unique<DefaultIncludeHandler>(this, params.character_encoding);
+        }
     }
 
     // Invoke DXC.

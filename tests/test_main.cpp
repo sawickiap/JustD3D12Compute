@@ -882,6 +882,30 @@ TEST_CASE("Shader source include", "[hlsl]")
     CHECK(result->GetBytecode().size > 0);
 }
 
+Result MyIncludeCallback(const wchar_t* path, void* context, char*& out_data, size_t& out_size)
+{
+    out_data = nullptr;
+    out_size = 0;
+    CHECK(uintptr_t(context) == 123);
+    return LoadFile(path, out_data, out_size);
+}
+
+TEST_CASE("Shader source include callback", "[hlsl]")
+{
+    ShaderCompilationParams params{};
+    params.entry_point = L"Main";
+    params.include_callback = MyIncludeCallback;
+    params.include_callback_context = (void*)(uintptr_t)123;
+
+    ShaderCompilationResult* result_ptr = nullptr;
+    REQUIRE(Succeeded(g_env->CompileShaderFromFile(params, L"shaders/include_test.hlsl", result_ptr)));
+    std::unique_ptr<ShaderCompilationResult> result{result_ptr};
+
+    REQUIRE(Succeeded(result->GetResult()));
+    CHECK(result->GetBytecode().data != nullptr);
+    CHECK(result->GetBytecode().size > 0);
+}
+
 TEST_CASE("Shader source include disabled", "[hlsl]")
 {
     ShaderCompilationParams params{};
