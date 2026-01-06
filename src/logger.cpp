@@ -251,8 +251,14 @@ Result Logger::Init(const EnvironmentDesc& env_desc)
     if(!IsStringEmpty(env_desc.log_file_path))
     {
         auto file_print_stream = std::make_unique<FilePrintStream>();
-        JD3D12_RETURN_IF_FAILED(file_print_stream->Init(env_desc.log_file_path));
-        print_streams_.PushBack(std::move(file_print_stream));
+        if(Succeeded(file_print_stream->Init(env_desc.log_file_path)))
+        {
+            print_streams_.PushBack(std::move(file_print_stream));
+        }
+        else
+        {
+            JD3D12_LOG(kLogSeverityWarning, L"Failed to open log file for writing: \"%s\"", env_desc.log_file_path);
+        }
     }
 
     return kSuccess;
