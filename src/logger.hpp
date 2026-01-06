@@ -15,12 +15,16 @@
 #include "internal_utils.hpp"
 
 // The place where you use this macro must have `GetLogger()` available.
-#define JD3D12_LOG(severity, format, ...) \
-    do { \
-        Logger* const logger = GetLogger(); \
-        if(logger != nullptr) \
-            logger->LogF(severity, format, __VA_ARGS__); \
-    } while(false)
+#if JD3D12_ENABLE_LOGGING
+    #define JD3D12_LOG(severity, format, ...) \
+        do { \
+            Logger* const logger = GetLogger(); \
+            if(logger != nullptr) \
+                logger->LogF(severity, format, __VA_ARGS__); \
+        } while(false)
+#else
+    #define JD3D12_LOG(severity, format, ...)
+#endif
 
 namespace jd3d12
 {
@@ -41,6 +45,8 @@ public:
     void LogF(LogSeverity severity, const wchar_t* format, ...);
 
 private:
+
+#if JD3D12_ENABLE_LOGGING
     uint32_t severity_mask_ = 0;
 
     LogCallback callback_ = nullptr;
@@ -48,6 +54,7 @@ private:
 
     std::mutex print_streams_mutex_;
     StackOrHeapVector<std::unique_ptr<PrintStream>, 4> print_streams_;
+#endif // #if JD3D12_ENABLE_LOGGING
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(Logger);
 };

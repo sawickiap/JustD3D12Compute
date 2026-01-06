@@ -8,6 +8,10 @@
 
 #pragma once
 
+#ifndef JD3D12_ENABLE_LOGGING
+    #define JD3D12_ENABLE_LOGGING 1
+#endif
+
 #ifndef JD3D12_ASSERT
     #include <cassert>
     /** \brief Predefine this macro to replace the implementation of assert used internally by the library

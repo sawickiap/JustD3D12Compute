@@ -14,6 +14,8 @@
 namespace jd3d12
 {
 
+#if JD3D12_ENABLE_LOGGING
+
 ////////////////////////////////////////////////////////////////////////////////
 // class definitions
 
@@ -219,6 +221,8 @@ void DebugPrintStream::Print(const wchar_t* str)
     OutputDebugStringW(str);
 }
 
+#endif // #if JD3D12_ENABLE_LOGGING
+
 ////////////////////////////////////////////////////////////////////////////////
 // class Logger
 
@@ -234,6 +238,7 @@ Logger::~Logger()
 
 Result Logger::Init(const EnvironmentDesc& env_desc)
 {
+#if JD3D12_ENABLE_LOGGING
     severity_mask_ = env_desc.log_severity;
     callback_ = env_desc.log_callback;
     callback_context_ = env_desc.log_callback_context;
@@ -262,12 +267,14 @@ Result Logger::Init(const EnvironmentDesc& env_desc)
             JD3D12_LOG(kLogSeverityWarning, L"Failed to open log file for writing: \"%s\"", env_desc.log_file_path);
         }
     }
+#endif // #if JD3D12_ENABLE_LOGGING
 
     return kSuccess;
 }
 
 void Logger::Log(LogSeverity severity, const wchar_t* message)
 {
+#if JD3D12_ENABLE_LOGGING
     if((severity & severity_mask_) == 0)
         return;
 
@@ -288,24 +295,29 @@ void Logger::Log(LogSeverity severity, const wchar_t* message)
                 s->Flush();
         }
     }
+#endif // #if JD3D12_ENABLE_LOGGING
 }
 
 void Logger::VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list)
 {
+#if JD3D12_ENABLE_LOGGING
     if((severity & severity_mask_) == 0)
         return;
     if(print_streams_.IsEmpty() && callback_ == nullptr)
         return;
 
     Log(severity, SVPrintF(format, arg_list).c_str());
+#endif // #if JD3D12_ENABLE_LOGGING
 }
 
 void Logger::LogF(LogSeverity severity, const wchar_t* format, ...)
 {
+#if JD3D12_ENABLE_LOGGING
     va_list arg_list;
     va_start(arg_list, format);
     VLogF(severity, format, arg_list);
     va_end(arg_list);
+#endif // #if JD3D12_ENABLE_LOGGING
 }
 
 } // namespace jd3d12
