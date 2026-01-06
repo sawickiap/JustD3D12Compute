@@ -668,8 +668,10 @@ enum EnvironmentFlags : uint32_t
     It can reduce performance overhead of the Debug Layer.
     */
     kEnvironmentFlagDisableD3d12StateTracking = 0x80u,
-
 };
+
+/// To be used with EnvironmentDesc::log_callback.
+using LogCallback = void (*)(LogSeverity severity, const wchar_t* message, void* context);
 
 /// Description of an #Enviromnet object to be created. Use with CreateEnvironment() function.
 struct EnvironmentDesc
@@ -721,6 +723,23 @@ struct EnvironmentDesc
     `"\n"` line endings.
     */
     const wchar_t* log_file_path = nullptr;
+    /** \brief Pointer to a custom callback function to receive log messages.
+
+    Setting it to non-null enables loggging through this callback, which happens before
+    all other means of logging (followed by standard output, standard error, file...).
+
+    This function may be called from different threads, also simultaneously, so you should synchronize
+    it yourself (e.g. using a mutex) if needed to ensure thread-safety.
+
+    You should make the function fast to avoid slowing down the program execution.
+
+    You shouldn't call any functions or class methods of this library found in `core.hpp` file
+    inside this function. Otherwise, a deadlock or stack overflow may occur.
+    */
+    LogCallback log_callback = nullptr;
+    /** \brief Custom pointer to be passed back to the `log_callback` function, which can be used for any purpose.
+    */
+    void* log_callback_context = nullptr;
 };
 
 class Environment

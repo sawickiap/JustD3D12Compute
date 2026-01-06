@@ -235,6 +235,8 @@ Logger::~Logger()
 Result Logger::Init(const EnvironmentDesc& env_desc)
 {
     severity_mask_ = env_desc.log_severity;
+    callback_ = env_desc.log_callback;
+    callback_context_ = env_desc.log_callback_context;
 
     if((env_desc.flags & kEnvironmentFlagLogStandardOutput) != 0)
     {
@@ -268,26 +270,31 @@ void Logger::Log(LogSeverity severity, const wchar_t* message)
 {
     if((severity & severity_mask_) == 0)
         return;
-    if(print_streams_.IsEmpty())
-        return;
 
-    const wchar_t* const severity_str = GetLogSeverityString(severity);
-
-    std::lock_guard<std::mutex> lock(print_stream_mutex_);
-    for(const auto& s : print_streams_)
+    if(callback_ != nullptr)
     {
-        s->PrintF(L"[%s] %s\n", severity_str, message);
-        if(severity >= kLogSeverityWarning)
-            s->Flush();
+        callback_(severity, message, callback_context_);
     }
 
+    if(!print_streams_.IsEmpty())
+    {
+        const wchar_t* const severity_str = GetLogSeverityString(severity);
+
+        std::lock_guard<std::mutex> lock(print_streams_mutex_);
+        for(const auto& s : print_streams_)
+        {
+            s->PrintF(L"[%s] %s\n", severity_str, message);
+            if(severity >= kLogSeverityWarning)
+                s->Flush();
+        }
+    }
 }
 
 void Logger::VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list)
 {
     if((severity & severity_mask_) == 0)
         return;
-    if(print_streams_.IsEmpty())
+    if(print_streams_.IsEmpty() && callback_ == nullptr)
         return;
 
     Log(severity, SVPrintF(format, arg_list).c_str());

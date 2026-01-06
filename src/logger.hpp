@@ -43,7 +43,10 @@ public:
 private:
     uint32_t severity_mask_ = 0;
 
-    std::mutex print_stream_mutex_;
+    LogCallback callback_ = nullptr;
+    void* callback_context_ = nullptr;
+
+    std::mutex print_streams_mutex_;
     StackOrHeapVector<std::unique_ptr<PrintStream>, 4> print_streams_;
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(Logger);

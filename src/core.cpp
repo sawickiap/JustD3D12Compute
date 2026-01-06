@@ -2368,11 +2368,11 @@ EnvironmentImpl::EnvironmentImpl(Environment* interface_obj, const EnvironmentDe
 
 Result EnvironmentImpl::Init()
 {
-    const bool logger_is_needed = (desc_.flags & (
-        kEnvironmentFlagLogStandardOutput
-        | kEnvironmentFlagLogStandardError
-        | kEnvironmentFlagLogDebug)) != 0 || !IsStringEmpty(desc_.log_file_path);
-    if(logger_is_needed)
+    const bool needs_logger = (desc_.flags & (
+        kEnvironmentFlagLogStandardOutput | kEnvironmentFlagLogStandardError | kEnvironmentFlagLogDebug)) != 0
+        || !IsStringEmpty(desc_.log_file_path)
+        || desc_.log_callback != nullptr;
+    if(needs_logger)
     {
         logger_ = std::make_unique<Logger>();
         JD3D12_RETURN_IF_FAILED(logger_->Init(desc_));

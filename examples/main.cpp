@@ -50,7 +50,12 @@ Environment* g_env;
 Device* g_dev;
 
 #define REQUIRE assert
-#define CHECK assert
+#define CHECK
+
+void MyLogCallback(LogSeverity severity, const wchar_t* message, void* context)
+{
+    wprintf(L"LogCallback [%s] %s\n", GetLogSeverityString(severity), message);
+}
 
 int main(int argc, char** argv)
 {
@@ -65,9 +70,12 @@ int main(int argc, char** argv)
         | kEnvironmentFlagEnableD3d12DebugLayer
         | kEnvironmentFlagEnableD3d12GpuBasedValidation;
     env_desc.log_severity = kLogSeverityAll;
+    //env_desc.log_callback = MyLogCallback;
     //env_desc.log_file_path = L"log.log";
     assert(Succeeded(CreateEnvironment(env_desc, g_env)));
     env.reset(g_env);
+
+    g_env->Log(kLogSeverityDebug, L"Test log message");
 
     /*
     std::unique_ptr<ShaderCompilationResult> shader_compilation_result;
