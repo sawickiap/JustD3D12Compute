@@ -53,7 +53,7 @@ Environment* g_env;
 Device* g_dev;
 
 #define REQUIRE assert
-#define CHECK
+#define CHECK assert
 
 void MyLogCallback(LogSeverity severity, const wchar_t* message, void* context)
 {
@@ -78,7 +78,7 @@ int main(int argc, char** argv)
     assert(Succeeded(CreateEnvironment(env_desc, g_env)));
     env.reset(g_env);
 
-    g_env->Log(kLogSeverityDebug, L"Test log message");
+    //g_env->Log(kLogSeverityDebug, L"Test log message");
 
     /*
     std::unique_ptr<ShaderCompilationResult> shader_compilation_result;

@@ -840,6 +840,8 @@ TEST_CASE("Shader compilation params", "[gpu][buffer][hlsl]")
         REQUIRE(Succeeded(g_dev->CompileAndCreateShaderFromFile(compilation_params,
             shader_desc, L"shaders/Test.hlsl", shader_ptr)));
         shader.reset(shader_ptr);
+
+        CHECK(shader->GetThreadGroupSize() == UintVec3{32, 1, 1});
     }
 
     BufferDesc default_buf_desc{};

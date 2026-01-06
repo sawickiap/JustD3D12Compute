@@ -104,13 +104,15 @@ class ShaderImpl : public DeviceObject
 public:
     ShaderImpl(Shader* interface_obj, DeviceImpl* device, const ShaderDesc& desc);
     ~ShaderImpl();
-    Result Init(ConstDataSpan bytecode);
+    Result Init(ConstDataSpan bytecode, ID3D12ShaderReflection* reflection);
 
+    UintVec3 GetThreadGroupSize() const noexcept { return thread_group_size_; }
     ID3D12PipelineState* GetD3D12PipelineState() const noexcept { return pipeline_state_; }
 
 private:
     Shader* const interface_obj_;
     ShaderDesc desc_ = {};
+    UintVec3 thread_group_size_ = {};
     CComPtr<ID3D12PipelineState> pipeline_state_;
 
     friend class Device;
@@ -245,6 +247,8 @@ private:
     HRESULT status_ = E_FAIL;
     CComPtr<IDxcBlobUtf8> errors_;
     CComPtr<IDxcBlob> object_;
+
+    friend class ShaderCompiler;
 };
 
 class DeviceImpl : public DeviceObject
@@ -481,6 +485,7 @@ public:
     IDXGIAdapter1* GetDXGIAdapter1() const noexcept { return adapter_; }
     ID3D12SDKConfiguration1* GetD3D12SDKConfiguration1() const noexcept { return sdk_config1_; }
     ID3D12DeviceFactory* GetD3D12DeviceFactory() const noexcept { return device_factory_; }
+    ShaderCompiler& GetShaderCompiler() { return shader_compiler_; }
 
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
 
@@ -801,9 +806,39 @@ ShaderImpl::~ShaderImpl()
     --dev->shader_count_;
 }
 
-Result ShaderImpl::Init(ConstDataSpan bytecode)
+Result ShaderImpl::Init(ConstDataSpan bytecode, ID3D12ShaderReflection* reflection)
 {
     DeviceImpl* const dev = GetDevice();
+
+    D3D12_SHADER_DESC shader_desc = {};
+    JD3D12_LOG_AND_RETURN_IF_FAILED(reflection->GetDesc(&shader_desc));
+
+    if(D3D12_SHVER_GET_TYPE(shader_desc.Version) != D3D12_SHVER_COMPUTE_SHADER)
+    {
+        JD3D12_LOG(kLogSeverityError, L"Only compute shaders are supported.");
+        return kErrorInvalidArgument;
+    }
+
+    /* TODO:
+    const uint64_t requires_flags = reflection->GetRequiresFlags();
+    // shader_desc.Flags or GetRequiresFlags ??
+    // D3D_SHADER_REQUIRES_RESOURCE_DESCRIPTOR_HEAP_INDEXING or D3D_SHADER_FEATURE_RESOURCE_DESCRIPTOR_HEAP_INDEXING ??
+    JD3D12_ASSERT((desc.Flags & D3D_SHADER_REQUIRES_RESOURCE_DESCRIPTOR_HEAP_INDEXING) == 0);
+    JD3D12_ASSERT((desc.Flags & D3D_SHADER_REQUIRES_SAMPLER_DESCRIPTOR_HEAP_INDEXING) == 0);
+    */
+
+    JD3D12_LOG_AND_RETURN_IF_FAILED(reflection->GetThreadGroupSize(
+        &thread_group_size_.x, &thread_group_size_.y, &thread_group_size_.z));
+    JD3D12_ASSERT(thread_group_size_.x > 0 && thread_group_size_.y > 0 && thread_group_size_.z > 0);
+
+    /*
+    for(uint32_t i = 0; i < shader_desc.BoundResources; ++i)
+    {
+        D3D12_SHADER_INPUT_BIND_DESC bind_desc = {};
+        JD3D12_ASSERT(SUCCEEDED(reflection->GetResourceBindingDesc(0, &bind_desc)));
+        Validate, save parameters...
+    }
+    */
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc = {};
     pso_desc.pRootSignature = dev->main_root_signature_->GetRootSignature();
@@ -1141,13 +1176,18 @@ Result DeviceImpl::CreateShaderFromMemory(const ShaderDesc& desc, ConstDataSpan 
     JD3D12_ASSERT_OR_RETURN(bytecode.data != nullptr && bytecode.size > 0,
         L"Shader bytecode cannot be null or empty.");
 
+    CComPtr<ID3D12ShaderReflection> reflection;
+    DxcBuffer buf = {bytecode.data, bytecode.size};
+    JD3D12_LOG_AND_RETURN_IF_FAILED(env_->GetShaderCompiler().GetDxcUtils()->CreateReflection(
+        &buf, IID_PPV_ARGS(&reflection)));
+
     auto shader = std::unique_ptr<Shader>{new Shader{}};
     shader->impl_ = new ShaderImpl{ shader.get(), this, desc };
 
     JD3D12_LOG(kLogSeverityInfo, L"Creating Shader 0x%016" PRIXPTR " \"%s\"",
         uintptr_t(shader.get()), EnsureNonNullString(desc.name));
 
-    JD3D12_RETURN_IF_FAILED(shader->GetImpl()->Init(bytecode));
+    JD3D12_RETURN_IF_FAILED(shader->GetImpl()->Init(bytecode, reflection));
 
     out_shader = shader.release();
     return kSuccess;
@@ -2812,6 +2852,12 @@ const wchar_t* Shader::GetName() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
     return impl_->GetName();
+}
+
+UintVec3 Shader::GetThreadGroupSize() const noexcept
+{
+    JD3D12_ASSERT(impl_ != nullptr);
+    return impl_->GetThreadGroupSize();
 }
 
 void* Shader::GetD3D12PipelineState() const noexcept

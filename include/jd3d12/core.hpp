@@ -97,6 +97,8 @@ public:
     ShaderImpl* GetImpl() const noexcept { return impl_; }
     Device* GetDevice() const noexcept;
     const wchar_t* GetName() const noexcept;
+    /// Returns the number of threads per thread group, as defined in HLSL using `[numthreads(x, y, z)]`.
+    UintVec3 GetThreadGroupSize() const noexcept;
     /// Returns ID3D12PipelineState* object.
     void* GetD3D12PipelineState() const noexcept;
 
