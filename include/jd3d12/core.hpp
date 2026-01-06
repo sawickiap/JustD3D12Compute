@@ -623,13 +623,9 @@ private:
 enum EnvironmentFlags : uint32_t
 {
     /** Enables logging to standard output stream (e.g. system console).
-
-    At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogStandardOutput     = 0x01u,
     /** Enables logging to standard error stream (e.g. system console).
-
-    At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogStandardError      = 0x02u,
     /** Enables logging to debugger output, using `OutputDebugStringW` function.
@@ -637,24 +633,10 @@ enum EnvironmentFlags : uint32_t
     Such messages can be observed in the Output panel of the debugger (if a debugger is attached)
     or using an external tool, like "dbgview64.exe" from SysInternals Suite.
 
-    Warning! This loggic mechanism is know to be very slow, so with large number of messages,
+    Warning! This loggic mechanism is know to be very slow, so with a large number of messages,
     it can slow down the application significantly.
-
-    At most one `kEnvironmentFlagLog*` can be used.
     */
     kEnvironmentFlagLogDebug              = 0x04u,
-    /** Enables logging to a text file.
-
-    File path must be specified in EnvironmentDesc::log_file_path.
-
-    At most one `kEnvironmentFlagLog*` can be used.
-    */
-    kEnvironmentFlagLogFile               = 0x08u,
-    /** Bit mask that covers all `kEnvironmentFlagLog*`.
-
-    You probably don't need to use it. It is used internally.
-    */
-    kEnvironmentMaskLog                   = 0x0Fu,
     /** Enables D3D12 Debug Layer and captures its messages, to be printed to the log.
 
     It can help identify warnings and errors with incorrect usage of the D3D12 API.
@@ -732,12 +714,11 @@ struct EnvironmentDesc
     uint32_t log_severity = kLogSeverityMinWarning;
     /** \brief Path to destination text file that will be created and used for logging.
 
+    Using non-null and non-empty string here enables logging to a file.
     If the file exists, it will be overwritten.
-    If opening the file fails, the entire creation of the #Environment object fails.
+    If opening the file fails, a warning issued and the initialization continues.
     The file is written in UTF-16 Little Endian format with BOM header at the beginning and Unix-style
     `"\n"` line endings.
-
-    This parameter should be specified if and only if #kEnvironmentFlagLogFile is specified.
     */
     const wchar_t* log_file_path = nullptr;
 };

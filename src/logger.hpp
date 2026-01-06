@@ -12,6 +12,7 @@
 #include <jd3d12/core.hpp>
 #include <jd3d12/utils.hpp>
 #include <jd3d12/types.hpp>
+#include "internal_utils.hpp"
 
 // The place where you use this macro must have `GetLogger()` available.
 #define JD3D12_LOG(severity, format, ...) \
@@ -43,7 +44,7 @@ private:
     uint32_t severity_mask_ = 0;
 
     std::mutex print_stream_mutex_;
-    std::unique_ptr<PrintStream> print_stream_;
+    StackOrHeapVector<std::unique_ptr<PrintStream>, 4> print_streams_;
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(Logger);
 };

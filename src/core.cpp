@@ -456,9 +456,6 @@ private:
     ShaderCompiler shader_compiler_;
 
     Result EnableDebugLayer();
-    // Sets out_is_needed depending on whether logger is needed with given parameters.
-    // Returns error if parameters are invalid.
-    Result IsLoggerNeeded(bool& out_is_needed);
 
     JD3D12_NO_COPY_NO_MOVE_CLASS(EnvironmentImpl)
 };
@@ -2371,8 +2368,10 @@ EnvironmentImpl::EnvironmentImpl(Environment* interface_obj, const EnvironmentDe
 
 Result EnvironmentImpl::Init()
 {
-    bool logger_is_needed = false;
-    JD3D12_RETURN_IF_FAILED(IsLoggerNeeded(logger_is_needed));
+    const bool logger_is_needed = (desc_.flags & (
+        kEnvironmentFlagLogStandardOutput
+        | kEnvironmentFlagLogStandardError
+        | kEnvironmentFlagLogDebug)) != 0 || !IsStringEmpty(desc_.log_file_path);
     if(logger_is_needed)
     {
         logger_ = std::make_unique<Logger>();
@@ -2568,24 +2567,6 @@ Result EnvironmentImpl::EnableDebugLayer()
         }
     }
 
-    return kSuccess;
-}
-
-Result EnvironmentImpl::IsLoggerNeeded(bool& out_is_needed)
-{
-    out_is_needed = false;
-
-    if((desc_.flags & kEnvironmentMaskLog) == 0 || desc_.log_severity == 0)
-        return kSuccess;
-
-    const uint32_t log_bits_set = CountBitsSet(desc_.flags & kEnvironmentMaskLog);
-    JD3D12_ASSERT_OR_RETURN(log_bits_set <= 1, L"At most one kEnvironmentFlagLog* can be specified.");
-
-    JD3D12_ASSERT_OR_RETURN(((desc_.flags & kEnvironmentFlagLogFile) != 0)
-        == !IsStringEmpty(desc_.log_file_path),
-        L"EnvironmentDesc::log_file_path should be specified if and only if kEnvironmentFlagLogFile is specified.");
-
-    out_is_needed = log_bits_set > 0;
     return kSuccess;
 }
 

@@ -64,6 +64,7 @@ public:
         if (initial_count > stack_item_max_count)
             heap_items_.resize(initial_count);
     }
+    bool IsEmpty() const noexcept { return count_ == 0; }
     size_t GetCount() const noexcept { return count_; }
     const T* GetData() const noexcept { return count_ <= stack_item_max_count ? stack_items_ : heap_items_.data(); }
     T* GetData() noexcept { return count_ <= stack_item_max_count ? stack_items_ : heap_items_.data(); }
@@ -94,24 +95,35 @@ public:
             heap_items_.emplace_back(std::move(val));
         ++count_;
     }
-    void PushBack(const T& val)
+    template<typename U>
+    void PushBack(U&& val)
     {
         // Adding still to stack_items_.
         if(count_ < stack_item_max_count)
-            stack_items_[count_] = val;
+            stack_items_[count_] = std::forward<U>(val);
         // Moving from stack_items_ to heap_items_.
         else if(count_ == stack_item_max_count)
         {
             heap_items_.reserve(count_ * 2);
             for(size_t i = 0; i < count_; ++i)
                 heap_items_.emplace_back(std::move(stack_items_[i]));
-            heap_items_.push_back(val);
+            heap_items_.emplace_back(std::forward<U>(val));
         }
         // Adding already to heap_items_.
         else
-            heap_items_.push_back(val);
+            heap_items_.emplace_back(std::forward<U>(val));
         ++count_;
     }
+
+    using iterator = T*;
+    using const_iterator = const T*;
+
+    iterator begin() noexcept { return GetData(); }
+    iterator end() noexcept { return GetData() + count_; }
+    const_iterator begin() const noexcept { return GetData(); }
+    const_iterator end() const noexcept { return GetData() + count_; }
+    const_iterator cbegin() const noexcept { return GetData(); }
+    const_iterator cend() const noexcept { return GetData() + count_; }
 
 private:
     size_t count_ = 0;

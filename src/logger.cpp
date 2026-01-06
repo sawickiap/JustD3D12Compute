@@ -10,8 +10,6 @@
 // https://github.com/sawickiap/MISC/tree/master/PrintStream
 
 #include "logger.hpp"
-#include "internal_utils.hpp"
-#include <jd3d12/utils.hpp>
 
 namespace jd3d12
 {
@@ -240,21 +238,21 @@ Result Logger::Init(const EnvironmentDesc& env_desc)
 
     if((env_desc.flags & kEnvironmentFlagLogStandardOutput) != 0)
     {
-        print_stream_ = std::make_unique<StandardOutputPrintStream>(false);
+        print_streams_.PushBack(std::make_unique<StandardOutputPrintStream>(false));
     }
-    else if((env_desc.flags & kEnvironmentFlagLogStandardError) != 0)
+    if((env_desc.flags & kEnvironmentFlagLogStandardError) != 0)
     {
-        print_stream_ = std::make_unique<StandardOutputPrintStream>(true);
+        print_streams_.PushBack(std::make_unique<StandardOutputPrintStream>(true));
     }
-    else if((env_desc.flags & kEnvironmentFlagLogDebug) != 0)
+    if((env_desc.flags & kEnvironmentFlagLogDebug) != 0)
     {
-        print_stream_ = std::make_unique<DebugPrintStream>();
+        print_streams_.PushBack(std::make_unique<DebugPrintStream>());
     }
-    else if((env_desc.flags & kEnvironmentFlagLogFile) != 0)
+    if(!IsStringEmpty(env_desc.log_file_path))
     {
         auto file_print_stream = std::make_unique<FilePrintStream>();
         JD3D12_RETURN_IF_FAILED(file_print_stream->Init(env_desc.log_file_path));
-        print_stream_ = std::move(file_print_stream);
+        print_streams_.PushBack(std::move(file_print_stream));
     }
 
     return kSuccess;
@@ -264,23 +262,26 @@ void Logger::Log(LogSeverity severity, const wchar_t* message)
 {
     if((severity & severity_mask_) == 0)
         return;
-    if(!print_stream_)
+    if(print_streams_.IsEmpty())
         return;
 
     const wchar_t* const severity_str = GetLogSeverityString(severity);
 
     std::lock_guard<std::mutex> lock(print_stream_mutex_);
-    print_stream_->PrintF(L"[%s] %s\n", severity_str, message);
+    for(const auto& s : print_streams_)
+    {
+        s->PrintF(L"[%s] %s\n", severity_str, message);
+        if(severity >= kLogSeverityWarning)
+            s->Flush();
+    }
 
-    if(severity >= kLogSeverityWarning)
-        print_stream_->Flush();
 }
 
 void Logger::VLogF(LogSeverity severity, const wchar_t* format, va_list arg_list)
 {
     if((severity & severity_mask_) == 0)
         return;
-    if(!print_stream_)
+    if(print_streams_.IsEmpty())
         return;
 
     Log(severity, SVPrintF(format, arg_list).c_str());
