@@ -73,7 +73,7 @@ public:
     */
     size_t GetElementSize() const noexcept;
     /// Returns `ID3D12Resource*`.
-    void* GetNativeResource() const noexcept;
+    void* GetD3D12Resource() const noexcept;
 
 private:
     BufferImpl* impl_ = nullptr;
@@ -97,7 +97,7 @@ public:
     Device* GetDevice() const noexcept;
     const wchar_t* GetName() const noexcept;
     /// Returns ID3D12PipelineState* object.
-    void* GetNativePipelineState() const noexcept;
+    void* GetD3D12PipelineState() const noexcept;
 
 private:
     ShaderImpl* impl_ = nullptr;
@@ -291,7 +291,7 @@ public:
     ~Device();
     DeviceImpl* GetImpl() const noexcept { return impl_; }
     Environment* GetEnvironment() const noexcept;
-    void* GetNativeDevice() const noexcept;
+    void* GetD3D12Device() const noexcept;
 
     Result CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer);
     /** \brief Creates a buffer and initializes it with data from memory.
@@ -748,13 +748,13 @@ public:
     ~Environment();
     EnvironmentImpl* GetImpl() const noexcept { return impl_; }
     /// Returns `IDXGIFactory6*`.
-    void* GetNativeDXGIFactory6() const noexcept;
+    void* GetDXGIFactory6() const noexcept;
     /// Returns `IDXGIAdapter1*`.
-    void* GetNativeAdapter1() const noexcept;
+    void* GetDXGIAdapter1() const noexcept;
     /// Returns `ID3D12SDKConfiguration1*`.
-    void* GetNativeSDKConfiguration1() const noexcept;
+    void* GetD3D12SDKConfiguration1() const noexcept;
     /// Returns `ID3D12DeviceFactory*`.
-    void* GetNativeDeviceFactory() const noexcept;
+    void* GetD3D12DeviceFactory() const noexcept;
 
     /** \brief Posts a custom message to the logging system.
 

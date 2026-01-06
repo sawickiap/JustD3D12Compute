@@ -536,7 +536,7 @@ TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer][hlsl]")
     Buffer* buffer_ptr = nullptr;
     REQUIRE(Succeeded(g_dev->CreateBuffer(upload_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> my_upload_buffer{ buffer_ptr };
-    REQUIRE(my_upload_buffer->GetNativeResource() != nullptr);
+    REQUIRE(my_upload_buffer->GetD3D12Resource() != nullptr);
 
     BufferDesc default_buf_desc{};
     default_buf_desc.name = L"My buffer DEFAULT";
@@ -548,7 +548,7 @@ TEST_CASE("UPLOAD as copy source and GPU read", "[gpu][buffer][hlsl]")
     default_buf_desc.element_format = Format::kR32_Float;
     REQUIRE(Succeeded(g_dev->CreateBuffer(default_buf_desc, buffer_ptr)));
     std::unique_ptr<Buffer> my_default_buffer{ buffer_ptr };
-    REQUIRE(my_default_buffer->GetNativeResource() != nullptr);
+    REQUIRE(my_default_buffer->GetD3D12Resource() != nullptr);
 
     float* mapped_ptr = nullptr;
     REQUIRE(Succeeded(g_dev->MapBuffer(*my_upload_buffer, kFullRange, kBufferUsageFlagCpuSequentialWrite,

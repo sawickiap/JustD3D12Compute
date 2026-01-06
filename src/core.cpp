@@ -77,7 +77,7 @@ public:
     Format GetElementFormat() const noexcept { return desc_.element_format; }
     size_t GetStructureSize() const noexcept { return desc_.structure_size; }
     size_t GetElementSize() const noexcept;
-    ID3D12Resource* GetNativeResource() const noexcept { return resource_; }
+    ID3D12Resource* GetD3D12Resource() const noexcept { return resource_; }
 
 private:
     Buffer* const interface_obj_;
@@ -105,7 +105,7 @@ public:
     ~ShaderImpl();
     Result Init(ConstDataSpan bytecode);
 
-    ID3D12PipelineState* GetPipelineState() const noexcept { return pipeline_state_; }
+    ID3D12PipelineState* GetD3D12PipelineState() const noexcept { return pipeline_state_; }
 
 private:
     Shader* const interface_obj_;
@@ -255,7 +255,7 @@ public:
 
     Device* GetInterface() const noexcept { return interface_obj_; }
     EnvironmentImpl* GetEnvironment() const noexcept { return env_; }
-    ID3D12Device* GetDevice() const noexcept { return device_; }
+    ID3D12Device* GetD3D12Device() const noexcept { return device_; }
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 GetOptions16() const noexcept { return options16_; }
 
     Result CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer);
@@ -432,9 +432,9 @@ public:
     Environment* GetInterface() const noexcept { return interface_obj_; }
     Logger* GetLogger() const noexcept { return logger_.get(); }
     IDXGIFactory6* GetDXGIFactory6() const noexcept { return dxgi_factory6_; }
-    IDXGIAdapter1* GetAdapter1() const noexcept { return adapter_; }
-    ID3D12SDKConfiguration1* GetSDKConfiguration1() const noexcept { return sdk_config1_; }
-    ID3D12DeviceFactory* GetDeviceFactory() const noexcept { return device_factory_; }
+    IDXGIAdapter1* GetDXGIAdapter1() const noexcept { return adapter_; }
+    ID3D12SDKConfiguration1* GetD3D12SDKConfiguration1() const noexcept { return sdk_config1_; }
+    ID3D12DeviceFactory* GetD3D12DeviceFactory() const noexcept { return device_factory_; }
 
     Result CreateDevice(const DeviceDesc& desc, Device*& out_device);
 
@@ -484,7 +484,7 @@ DeviceObject::DeviceObject(DeviceImpl* device, const DeviceDesc& desc)
 ID3D12Device* DeviceObject::GetD3d12Device() const noexcept
 {
     JD3D12_ASSERT(device_ != nullptr);
-    return device_->GetDevice();
+    return device_->GetD3D12Device();
 }
 
 Logger* DeviceObject::GetLogger() const
@@ -763,7 +763,8 @@ Result ShaderImpl::Init(ConstDataSpan bytecode)
     pso_desc.pRootSignature = dev->main_root_signature_->GetRootSignature();
     pso_desc.CS.pShaderBytecode = bytecode.data;
     pso_desc.CS.BytecodeLength = bytecode.size;
-    JD3D12_LOG_AND_RETURN_IF_FAILED(dev->GetDevice()->CreateComputePipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_state_)));
+    JD3D12_LOG_AND_RETURN_IF_FAILED(dev->GetD3D12Device()->CreateComputePipelineState(
+        &pso_desc, IID_PPV_ARGS(&pipeline_state_)));
 
     SetObjectName(pipeline_state_, desc_.name);
     desc_.name = nullptr;
@@ -1298,7 +1299,7 @@ Result DeviceImpl::WriteMemoryToBuffer(ConstDataSpan src_data, BufferImpl& dst_b
         StackOrHeapVector<D3D12_WRITEBUFFERIMMEDIATE_PARAMETER, 8> params{param_count};
         {
             const uint32_t* src_data_u32 = reinterpret_cast<const uint32_t*>(src_data.data);
-            D3D12_GPU_VIRTUAL_ADDRESS dst_gpu_address = dst_buf.GetNativeResource()->GetGPUVirtualAddress();
+            D3D12_GPU_VIRTUAL_ADDRESS dst_gpu_address = dst_buf.GetD3D12Resource()->GetGPUVirtualAddress();
             for(uint32_t param_index = 0; param_index < param_count
                 ; ++param_index, ++src_data_u32, dst_gpu_address += sizeof(uint32_t))
             {
@@ -1344,7 +1345,7 @@ Result DeviceImpl::CopyBuffer(BufferImpl& src_buf, BufferImpl& dst_buf)
     JD3D12_RETURN_IF_FAILED(UseBuffer(src_buf, D3D12_RESOURCE_STATE_COPY_SOURCE));
     JD3D12_RETURN_IF_FAILED(UseBuffer(dst_buf, D3D12_RESOURCE_STATE_COPY_DEST));
 
-    command_list_->CopyResource(dst_buf.GetNativeResource(), src_buf.GetNativeResource());
+    command_list_->CopyResource(dst_buf.GetD3D12Resource(), src_buf.GetD3D12Resource());
 
     return kSuccess;
 }
@@ -1367,8 +1368,8 @@ Result DeviceImpl::CopyBufferRegion(BufferImpl& src_buf, Range src_byte_range, B
     JD3D12_RETURN_IF_FAILED(UseBuffer(src_buf, D3D12_RESOURCE_STATE_COPY_SOURCE));
     JD3D12_RETURN_IF_FAILED(UseBuffer(dst_buf, D3D12_RESOURCE_STATE_COPY_DEST));
 
-    command_list_->CopyBufferRegion(dst_buf.GetNativeResource(), dst_byte_offset,
-        src_buf.GetNativeResource(), src_byte_range.first, src_byte_range.count);
+    command_list_->CopyBufferRegion(dst_buf.GetD3D12Resource(), dst_byte_offset,
+        src_buf.GetD3D12Resource(), src_byte_range.first, src_byte_range.count);
 
     return kSuccess;
 }
@@ -1393,7 +1394,7 @@ Result DeviceImpl::ClearBufferToUintValues(BufferImpl& buf, const UintVec4& valu
     command_list_->ClearUnorderedAccessViewUint(
         shader_visible_gpu_desc_handle, // ViewGPUHandleInCurrentHeap
         shader_invisible_cpu_desc_handle, // ViewCPUHandle
-        buf.GetNativeResource(), // pResource
+        buf.GetD3D12Resource(), // pResource
         &values.x, // Values
         0, // NumRects
         nullptr); // pRects
@@ -1421,7 +1422,7 @@ Result DeviceImpl::ClearBufferToFloatValues(BufferImpl& buf, const FloatVec4& va
     command_list_->ClearUnorderedAccessViewFloat(
         shader_visible_gpu_desc_handle, // ViewGPUHandleInCurrentHeap
         shader_invisible_cpu_desc_handle, // ViewCPUHandle
-        buf.GetNativeResource(), // pResource
+        buf.GetD3D12Resource(), // pResource
         &values.x, // Values
         0, // NumRects
         nullptr); // pRects
@@ -1579,7 +1580,7 @@ Result DeviceImpl::Init(bool enable_d3d12_debug_layer)
 {
     DXGI_ADAPTER_DESC adapter_desc = {};
     {
-        env_->GetAdapter1()->GetDesc(&adapter_desc);
+        env_->GetDXGIAdapter1()->GetDesc(&adapter_desc);
         // Ignoring the result.
     }
 
@@ -1587,7 +1588,7 @@ Result DeviceImpl::Init(bool enable_d3d12_debug_layer)
         uintptr_t(GetInterface()),
         EnsureNonNullString(desc_.name), desc_.flags, adapter_desc.Description);
 
-    JD3D12_LOG_AND_RETURN_IF_FAILED(env_->GetDeviceFactory()->CreateDevice(env_->GetAdapter1(),
+    JD3D12_LOG_AND_RETURN_IF_FAILED(env_->GetD3D12DeviceFactory()->CreateDevice(env_->GetDXGIAdapter1(),
         D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&device_)));
 
     if(enable_d3d12_debug_layer)
@@ -1795,7 +1796,7 @@ Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrier.Transition.pResource = buf.GetNativeResource();
+            barrier.Transition.pResource = buf.GetD3D12Resource();
             barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             barrier.Transition.StateBefore = it->second.last_state;
             barrier.Transition.StateAfter = state;
@@ -1808,7 +1809,7 @@ Result DeviceImpl::UseBuffer(BufferImpl& buf, D3D12_RESOURCE_STATES state)
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrier.UAV.pResource = buf.GetNativeResource();
+            barrier.UAV.pResource = buf.GetD3D12Resource();
             command_list_->ResourceBarrier(1, &barrier);
         }
     }
@@ -1841,7 +1842,7 @@ Result DeviceImpl::UpdateRootArguments()
                 JD3D12_LOG_AND_RETURN_IF_FAILED(shader_visible_descriptor_heap_.AllocateDynamic(binding.descriptor_index));
 
                 D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
-                cbv_desc.BufferLocation = binding.buffer->GetNativeResource()->GetGPUVirtualAddress()
+                cbv_desc.BufferLocation = binding.buffer->GetD3D12Resource()->GetGPUVirtualAddress()
                     + binding.byte_range.first;
                 const size_t final_size = binding.byte_range.count;
                 JD3D12_ASSERT(final_size <= UINT32_MAX);
@@ -1929,7 +1930,7 @@ Result DeviceImpl::UpdateRootArguments()
                 default:
                     JD3D12_ASSERT(0);
                 }
-                device_->CreateShaderResourceView(binding.buffer->GetNativeResource(), &srv_desc,
+                device_->CreateShaderResourceView(binding.buffer->GetD3D12Resource(), &srv_desc,
                     shader_visible_descriptor_heap_.GetCpuHandleForDescriptor(binding.descriptor_index));
             }
 
@@ -2010,7 +2011,7 @@ Result DeviceImpl::UpdateRootArguments()
                 default:
                     JD3D12_ASSERT(0);
                 }
-                device_->CreateUnorderedAccessView(binding.buffer->GetNativeResource(), nullptr, &uav_desc,
+                device_->CreateUnorderedAccessView(binding.buffer->GetD3D12Resource(), nullptr, &uav_desc,
                     shader_visible_descriptor_heap_.GetCpuHandleForDescriptor(binding.descriptor_index));
             }
 
@@ -2158,7 +2159,7 @@ Result DeviceImpl::BeginClearBufferToValues(BufferImpl& buf, Range element_range
     out_shader_invisible_cpu_desc_handle =
         shader_invisible_descriptor_heap_.GetCpuHandleForDescriptor(shader_invisible_desc_index);
 
-    ID3D12Resource* const d3d12_res = buf.GetNativeResource();
+    ID3D12Resource* const d3d12_res = buf.GetD3D12Resource();
     JD3D12_ASSERT(d3d12_res != nullptr);
     device_->CreateUnorderedAccessView(d3d12_res, nullptr, &uav_desc, shader_visible_cpu_desc_handle);
     device_->CreateUnorderedAccessView(d3d12_res, nullptr, &uav_desc, out_shader_invisible_cpu_desc_handle);
@@ -2195,7 +2196,7 @@ Result DeviceImpl::DispatchComputeShader(ShaderImpl& shader, const UintVec3& gro
     ID3D12DescriptorHeap* const desc_heap = shader_visible_descriptor_heap_.GetDescriptorHeap();
     command_list_->SetDescriptorHeaps(1, &desc_heap);
 
-    command_list_->SetPipelineState(shader.GetPipelineState());
+    command_list_->SetPipelineState(shader.GetD3D12PipelineState());
 
     command_list_->SetComputeRootSignature(main_root_signature_->GetRootSignature());
 
@@ -2625,10 +2626,10 @@ size_t Buffer::GetElementSize() const noexcept
     return impl_->GetElementSize();
 }
 
-void* Buffer::GetNativeResource() const noexcept
+void* Buffer::GetD3D12Resource() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
-    return impl_->GetNativeResource();
+    return impl_->GetD3D12Resource();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2656,10 +2657,10 @@ const wchar_t* Shader::GetName() const noexcept
     return impl_->GetName();
 }
 
-void* Shader::GetNativePipelineState() const noexcept
+void* Shader::GetD3D12PipelineState() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
-    return impl_->GetPipelineState();
+    return impl_->GetD3D12PipelineState();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2718,10 +2719,10 @@ Environment* Device::GetEnvironment() const noexcept
     return impl_->GetEnvironment()->GetInterface();
 }
 
-void* Device::GetNativeDevice() const noexcept
+void* Device::GetD3D12Device() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
-    return impl_->GetDevice();
+    return impl_->GetD3D12Device();
 }
 
 Result Device::CreateBuffer(const BufferDesc& desc, Buffer*& out_buffer)
@@ -3180,28 +3181,28 @@ Environment::~Environment()
     delete impl_;
 }
 
-void* Environment::GetNativeDXGIFactory6() const noexcept
+void* Environment::GetDXGIFactory6() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
     return impl_->GetDXGIFactory6();
 }
 
-void* Environment::GetNativeAdapter1() const noexcept
+void* Environment::GetDXGIAdapter1() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
-    return impl_->GetAdapter1();
+    return impl_->GetDXGIAdapter1();
 }
 
-void* Environment::GetNativeSDKConfiguration1() const noexcept
+void* Environment::GetD3D12SDKConfiguration1() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
-    return impl_->GetSDKConfiguration1();
+    return impl_->GetD3D12SDKConfiguration1();
 }
 
-void* Environment::GetNativeDeviceFactory() const noexcept
+void* Environment::GetD3D12DeviceFactory() const noexcept
 {
     JD3D12_ASSERT(impl_ != nullptr);
-    return impl_->GetDeviceFactory();
+    return impl_->GetD3D12DeviceFactory();
 }
 
 void Environment::Log(LogSeverity severity, const wchar_t* message)
