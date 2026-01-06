@@ -261,6 +261,21 @@ TEST_CASE("Custom log message", "[logger]")
     g_env->LogF(kLogSeverityError, L"Test custom error message with hex=0x%08X, string=%s", u, s);
 }
 
+TEST_CASE("Getting parent object", "[buffer]")
+{
+    CHECK(g_dev->GetEnvironment() == g_env);
+
+    BufferDesc buf_desc{};
+    buf_desc.size = 1024;
+    buf_desc.flags = kBufferUsageFlagCpuSequentialWrite
+        | kBufferUsageFlagCopySrc;
+    Buffer* buf_ptr = nullptr;
+    REQUIRE(Succeeded(g_dev->CreateBuffer(buf_desc, buf_ptr)));
+    std::unique_ptr<Buffer> buf{buf_ptr};
+
+    CHECK(buf->GetDevice() == g_dev);
+}
+
 TEST_CASE("Typed buffer", "[gpu][buffer][hlsl]")
 {
     std::unique_ptr<Shader> typed_shader;
