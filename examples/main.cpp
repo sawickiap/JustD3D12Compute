@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Adam Sawicki
+// Copyright (c) 2025-2026 Adam Sawicki
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -42,11 +42,11 @@ StaticBuffer main_readback_buffer{
 
 StaticShaderCompiledFromFile byte_address_shader{
     ShaderCompilationParams{
-        0,//kShaderCompilationFlagDisableIncludes,
+        0, // flags
         kCharacterEncodingAnsi,
-        L"Main_ByteAddress" },
-    ShaderDesc{ },
-    L"c:/Code/JustD3D12Compute/REPO/tests/shaders/Test.hlsl"
+        L"Main" },
+    ShaderDesc{ L"TemporaryTest Shader" },
+    L"c:/Code/JustD3D12Compute/REPO/examples/shaders/TemporaryTest.hlsl"
 };
 
 Environment* g_env;
@@ -121,7 +121,7 @@ int main(int argc, char** argv)
         REQUIRE(main_upload_buffer.GetBuffer() != nullptr);
         REQUIRE(Succeeded(g_dev->CopyBufferRegion(*main_upload_buffer.GetBuffer(),
             Range{0, kMainBufSize}, *default_buffer, 0)));
-        REQUIRE(Succeeded(g_dev->BindRWBuffer(2, default_buffer.get())));
+        REQUIRE(Succeeded(g_dev->BindRWBuffer(0, default_buffer.get())));
         REQUIRE(byte_address_shader.GetShader() != nullptr);
         REQUIRE(Succeeded(g_dev->DispatchComputeShader(*byte_address_shader.GetShader(), { 8, 1, 1 })));
         g_dev->ResetAllBindings();
